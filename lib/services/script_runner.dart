@@ -1,0 +1,81 @@
+import 'package:flutter/foundation.dart';
+
+import '../models/script_action.dart';
+import 'torch_service.dart';
+
+/// Executes a list of [ScriptAction]s one after another.
+///
+/// Only one run can happen at a time. A run can be cancelled between steps,
+/// and long delays are split into small ticks so cancellation stays responsive.
+class ScriptRunner {
+  ScriptRunner(this._torch);
+
+  final TorchService _torch;
+
+  bool _running = false;
+  bool get isRunning => _running;
+
+  int _currentIndex = -1;
+  int get currentIndex => _currentIndex;
+
+  bool _cancelRequested = false;
+
+  /// Called whenever the running state or the active step changes.
+  VoidCallback? onUpdate;
+
+  Future<void> run(
+    List<ScriptAction> actions, {
+    bool turnOffAtEnd = true,
+  }) async {
+    if (_running || actions.isEmpty) return;
+
+    _running = true;
+    _cancelRequested = false;
+    _notify();
+
+    for (var i = 0; i < actions.length; i++) {
+      if (_cancelRequested) break;
+      _currentIndex = i;
+      _notify();
+
+      final action = actions[i];
+      switch (action.type) {
+        case ActionType.torchOn:
+          await _torch.setOn(true);
+          break;
+        case ActionType.torchOff:
+          await _torch.setOn(false);
+          break;
+        case ActionType.delay:
+          await _torch.setOn(action.lightOn);
+          await _wait(action.delayMs);
+          break;
+      }
+    }
+
+    if (turnOffAtEnd) {
+      await _torch.setOn(false);
+    }
+
+    _running = false;
+    _currentIndex = -1;
+    _cancelRequested = false;
+    _notify();
+  }
+
+  void cancel() {
+    if (_running) _cancelRequested = true;
+  }
+
+  Future<void> _wait(int milliseconds) async {
+    const tick = 40;
+    var remaining = milliseconds;
+    while (remaining > 0 && !_cancelRequested) {
+      final step = remaining < tick ? remaining : tick;
+      await Future<void>.delayed(Duration(milliseconds: step));
+      remaining -= step;
+    }
+  }
+
+  void _notify() => onUpdate?.call();
+}
