@@ -120,8 +120,8 @@ class _StatusText extends StatelessWidget {
     final String text;
     if (!controller.torchAvailable) {
       text = 'Вспышка недоступна на этом устройстве';
-    } else if (controller.scriptRunning) {
-      text = 'Выполняется скрипт…';
+    } else if (!controller.sensorAvailable) {
+      text = 'Магнитометр недоступен — переподключение…';
     } else if (lit) {
       text = 'Фонарик включён';
     } else {

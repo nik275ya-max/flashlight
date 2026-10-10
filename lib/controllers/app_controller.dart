@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/script_action.dart';
+import '../services/magnet_detector.dart';
 import '../services/magnet_service.dart';
 import '../services/script_runner.dart';
 import '../services/torch_service.dart';
@@ -39,11 +40,13 @@ class AppController extends ChangeNotifier {
        _magnet = magnetService {
     _runner = ScriptRunner(_torch);
     _runner.onUpdate = notifyListeners;
+    _detector = MagnetDetector(threshold: _threshold);
   }
 
   final TorchService _torch;
   final MagnetService _magnet;
   late final ScriptRunner _runner;
+  late final MagnetDetector _detector;
 
   StreamSubscription<MagneticReading>? _magnetSubscription;
   SharedPreferences? _prefs;
@@ -87,8 +90,8 @@ class AppController extends ChangeNotifier {
   bool _magnetDetected = false;
   bool get magnetDetected => _magnetDetected;
 
-  bool _sensorAvailable = true;
-  bool get sensorAvailable => _sensorAvailable;
+  bool get sensorAvailable => _magnet.status == MagnetStatus.listening;
+  MagnetStatus get magnetStatus => _magnet.status;
 
   bool get scriptRunning => _runner.isRunning;
   int get currentActionIndex => _runner.currentIndex;
@@ -98,8 +101,11 @@ class AppController extends ChangeNotifier {
 
   bool get initialized => _initialized;
 
+  static const _sensorNotifyInterval = Duration(milliseconds: 200);
+  DateTime _lastSensorNotify = DateTime.fromMillisecondsSinceEpoch(0);
+
   /// The magnitude below which the magnet is considered released again.
-  double get releaseThreshold => _threshold * 0.6;
+  double get releaseThreshold => _detector.releaseThreshold;
 
   static List<ScriptAction> defaultScript() => const [
     ScriptAction(type: ActionType.torchOn),
@@ -119,39 +125,47 @@ class AppController extends ChangeNotifier {
   // ------------------------------------------------------------- magnet loop
 
   void _startMagnet() {
+    _magnet.onUpdate = notifyListeners;
     _magnet.start();
     _magnetSubscription = _magnet.readings.listen(
       _onReading,
-      onError: (Object error) {
-        _sensorAvailable = false;
-        notifyListeners();
-      },
+      onError: (Object error) => notifyListeners(),
     );
   }
 
   void _onReading(MagneticReading reading) {
-    _magnitude = reading.magnitude;
+    final event = _detector.addSample(reading.magnitude);
+
+    _magnitude = _detector.filtered;
     _fieldX = reading.x;
     _fieldY = reading.y;
     _fieldZ = reading.z;
-    _sensorAvailable = true;
+    _magnetDetected = _detector.detected;
 
-    final wasDetected = _magnetDetected;
-    if (!_magnetDetected && _magnitude >= _threshold) {
-      _magnetDetected = true;
-    } else if (_magnetDetected && _magnitude <= releaseThreshold) {
-      _magnetDetected = false;
-    }
-
-    if (_detectionEnabled && wasDetected != _magnetDetected) {
+    if (event != null && _detectionEnabled) {
       final shouldRun =
-          (_magnetDetected && _triggerMode == TriggerMode.onApproach) ||
-          (!_magnetDetected && _triggerMode == TriggerMode.onRemoval);
+          (event == MagnetEvent.approach &&
+              _triggerMode == TriggerMode.onApproach) ||
+          (event == MagnetEvent.removal &&
+              _triggerMode == TriggerMode.onRemoval);
       if (shouldRun) {
+        _detector.acknowledgeTrigger();
         unawaited(runScript());
       }
     }
 
+    _notifySensor(force: event != null);
+  }
+
+  /// Sensors stream at up to 20 Hz; rebuilding the whole tree on every sample
+  /// makes the UI jitter, so readings are coalesced. Discrete changes still
+  /// notify immediately through [notifyListeners].
+  void _notifySensor({bool force = false}) {
+    final now = DateTime.now();
+    if (!force && now.difference(_lastSensorNotify) < _sensorNotifyInterval) {
+      return;
+    }
+    _lastSensorNotify = now;
     notifyListeners();
   }
 
@@ -211,6 +225,7 @@ class AppController extends ChangeNotifier {
 
   void setThreshold(double value) {
     _threshold = value;
+    _detector.threshold = value;
     _persist();
   }
 
@@ -246,6 +261,7 @@ class AppController extends ChangeNotifier {
 
     _detectionEnabled = prefs.getBool(_detectionKey) ?? true;
     _threshold = prefs.getDouble(_thresholdKey) ?? 150;
+    _detector.threshold = _threshold;
     final modeIndex = prefs.getInt(_triggerModeKey) ?? 0;
     _triggerMode =
         TriggerMode.values[modeIndex.clamp(0, TriggerMode.values.length - 1)];
