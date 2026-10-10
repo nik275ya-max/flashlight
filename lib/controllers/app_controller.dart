@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/script_action.dart';
+import '../services/haptic_service.dart';
 import '../services/magnet_detector.dart';
 import '../services/magnet_service.dart';
 import '../services/script_runner.dart';
@@ -36,8 +37,10 @@ class AppController extends ChangeNotifier {
   AppController({
     required TorchService torchService,
     required MagnetService magnetService,
+    Future<void> Function()? hapticFeedback,
   }) : _torch = torchService,
-       _magnet = magnetService {
+       _magnet = magnetService,
+       _hapticFeedback = hapticFeedback ?? HapticService().buzz {
     _runner = ScriptRunner(_torch);
     _runner.onUpdate = notifyListeners;
     _detector = MagnetDetector(threshold: _threshold);
@@ -45,6 +48,7 @@ class AppController extends ChangeNotifier {
 
   final TorchService _torch;
   final MagnetService _magnet;
+  final Future<void> Function() _hapticFeedback;
   late final ScriptRunner _runner;
   late final MagnetDetector _detector;
 
@@ -57,6 +61,7 @@ class AppController extends ChangeNotifier {
   static const _triggerModeKey = 'triggerMode';
   static const _turnOffKey = 'turnOffAfterScript';
   static const _scriptKey = 'script';
+  static const _hapticKey = 'hapticOnScript';
 
   // ---------------------------------------------------------------- settings
 
@@ -74,6 +79,9 @@ class AppController extends ChangeNotifier {
 
   bool _turnOffAfterScript = true;
   bool get turnOffAfterScript => _turnOffAfterScript;
+
+  bool _hapticOnScript = true;
+  bool get hapticOnScript => _hapticOnScript;
 
   // ---------------------------------------------------------------- runtime
 
@@ -173,6 +181,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> runScript() async {
     if (_runner.isRunning) return;
+    if (_hapticOnScript) unawaited(_hapticFeedback());
     await _runner.run(_script, turnOffAtEnd: _turnOffAfterScript);
   }
 
@@ -239,6 +248,11 @@ class AppController extends ChangeNotifier {
     _persist();
   }
 
+  void setHapticOnScript(bool value) {
+    _hapticOnScript = value;
+    _persist();
+  }
+
   // ------------------------------------------------------------- persistence
 
   void _load() {
@@ -266,6 +280,7 @@ class AppController extends ChangeNotifier {
     _triggerMode =
         TriggerMode.values[modeIndex.clamp(0, TriggerMode.values.length - 1)];
     _turnOffAfterScript = prefs.getBool(_turnOffKey) ?? true;
+    _hapticOnScript = prefs.getBool(_hapticKey) ?? true;
   }
 
   void _persist() {
@@ -282,6 +297,7 @@ class AppController extends ChangeNotifier {
     prefs.setDouble(_thresholdKey, _threshold);
     prefs.setInt(_triggerModeKey, _triggerMode.index);
     prefs.setBool(_turnOffKey, _turnOffAfterScript);
+    prefs.setBool(_hapticKey, _hapticOnScript);
     notifyListeners();
   }
 

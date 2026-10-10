@@ -39,6 +39,7 @@ dependencies:
   provider: ^6.1.5+1
   shared_preferences: ^2.5.6
   permission_handler: ^13.0.0
+  vibration: ^3.2.1
 
 # permission_handler_android 14.x sets compileSdk = 37, but the SDK ships that
 # platform as `android-37.0`, which AGP cannot resolve via `android-37`. Stay on

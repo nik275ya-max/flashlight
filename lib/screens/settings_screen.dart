@@ -151,6 +151,20 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(height: 24),
+          const Divider(),
+          _SectionTitle(
+            title: 'Отклик',
+            subtitle: 'Короткий виброотклик, когда магнит запускает скрипт.',
+          ),
+          Card(
+            child: SwitchListTile(
+              title: const Text('Вибрация при запуске скрипта'),
+              subtitle: const Text('Один короткий отклик на каждый запуск'),
+              value: controller.hapticOnScript,
+              onChanged: controller.setHapticOnScript,
+            ),
+          ),
         ],
       ),
     );

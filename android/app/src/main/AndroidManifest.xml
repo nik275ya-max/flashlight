@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- torch_light uses CameraManager.setTorchMode, which requires CAMERA. -->
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- Short haptic feedback when the magnet starts the script. -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-feature android:name="android.hardware.camera.flash" android:required="false"/>
     <uses-feature android:name="android.hardware.sensor.compass" android:required="false"/>
     <application
