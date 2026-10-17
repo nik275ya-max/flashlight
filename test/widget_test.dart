@@ -60,6 +60,7 @@ void main() {
 
   group('ScriptRunner', () {
     test('runs torch actions and delays in order, then turns off', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
       final torch = _FakeTorch();
       final runner = ScriptRunner(torch);
 
@@ -75,6 +76,7 @@ void main() {
     });
 
     test('keeps the torch on when turnOffAtEnd is false', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
       final torch = _FakeTorch();
       final runner = ScriptRunner(torch);
 
@@ -86,6 +88,7 @@ void main() {
     });
 
     test('a second run is ignored while the first is active', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
       final torch = _FakeTorch();
       final runner = ScriptRunner(torch);
 
@@ -101,6 +104,7 @@ void main() {
     });
 
     test('cancel stops the script early', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
       final torch = _FakeTorch();
       final runner = ScriptRunner(torch);
 

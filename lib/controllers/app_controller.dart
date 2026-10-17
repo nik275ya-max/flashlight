@@ -8,6 +8,7 @@ import '../models/script_action.dart';
 import '../services/haptic_service.dart';
 import '../services/magnet_detector.dart';
 import '../services/magnet_service.dart';
+import '../services/music_service.dart';
 import '../services/script_runner.dart';
 import '../services/torch_service.dart';
 
@@ -31,23 +32,27 @@ extension TriggerModeLabel on TriggerMode {
   }
 }
 
-/// Central application state: the script, the detection settings and the live
-/// magnetometer values.
+/// Central application state: the list of stage scripts, the detection
+/// settings and the live magnetometer values.
 class AppController extends ChangeNotifier {
   AppController({
     required TorchService torchService,
     required MagnetService magnetService,
     Future<void> Function()? hapticFeedback,
+    MusicService? musicService,
   }) : _torch = torchService,
        _magnet = magnetService,
+       _music = musicService ?? MusicService(),
        _hapticFeedback = hapticFeedback ?? HapticService().buzz {
-    _runner = ScriptRunner(_torch);
+    _runner = ScriptRunner(_torch, music: _music);
     _runner.onUpdate = notifyListeners;
+    _runner.onCounterReset = _onCounterReset;
     _detector = MagnetDetector(threshold: _threshold);
   }
 
   final TorchService _torch;
   final MagnetService _magnet;
+  final MusicService _music;
   final Future<void> Function() _hapticFeedback;
   late final ScriptRunner _runner;
   late final MagnetDetector _detector;
@@ -56,17 +61,38 @@ class AppController extends ChangeNotifier {
   SharedPreferences? _prefs;
   bool _initialized = false;
 
+  static const _scriptsKey = 'scripts';
+  static const _stageIndexKey = 'stageIndex';
   static const _thresholdKey = 'threshold';
   static const _detectionKey = 'detectionEnabled';
   static const _triggerModeKey = 'triggerMode';
   static const _turnOffKey = 'turnOffAfterScript';
-  static const _scriptKey = 'script';
+  static const _scriptKey = 'script'; // legacy
   static const _hapticKey = 'hapticOnScript';
 
   // ---------------------------------------------------------------- settings
 
-  List<ScriptAction> _script = defaultScript();
-  List<ScriptAction> get script => List.unmodifiable(_script);
+  List<List<ScriptAction>> _scripts = [defaultScript()];
+  List<List<ScriptAction>> get scripts => List.unmodifiable(_scripts);
+
+  int _stageIndex = 0;
+
+  /// Which script will run on the next magnet trigger.
+  int get stageIndex => _stageIndex;
+
+  /// True once the stage counter has passed the last script.
+  bool get stageBlocked => _stageIndex >= _scripts.length;
+
+  /// Human readable label, e.g. «Стадия 2/3» or «Скрипты завершены».
+  String get stageLabel {
+    if (stageBlocked) return 'Скрипты завершены — сбросьте счётчик';
+    return 'Стадия ${_stageIndex + 1}/${_scripts.length}';
+  }
+
+  List<ScriptAction> get activeScript {
+    if (stageBlocked || _scripts.isEmpty) return const [];
+    return List.unmodifiable(_scripts[_stageIndex]);
+  }
 
   bool _detectionEnabled = true;
   bool get detectionEnabled => _detectionEnabled;
@@ -179,13 +205,52 @@ class AppController extends ChangeNotifier {
 
   // ------------------------------------------------------------------ script
 
+  /// Runs the script for the current stage.
+  ///
+  /// Stage logic (variant B): the stage counter is incremented immediately
+  /// when a trigger fires, so a new trigger always starts the *next* script.
+  /// If the running script contains [ActionType.resetCounter] and completes
+  /// without being cancelled, the counter is set back to the first script.
+  /// A cancelled script never applies the reset.
   Future<void> runScript() async {
-    if (_runner.isRunning) return;
+    if (stageBlocked || _scripts.isEmpty) return;
+
+    // A new trigger always interrupts whatever is currently running.
+    if (_runner.isRunning) {
+      _runner.cancel();
+      await _runner.activeRun;
+    }
+
+    final stage = _stageIndex;
+    _stageIndex++;
+    _persist();
+
     if (_hapticOnScript) unawaited(_hapticFeedback());
-    await _runner.run(_script, turnOffAtEnd: _turnOffAfterScript);
+
+    _scriptDidReset = false;
+    await _runner.run(_scripts[stage], turnOffAtEnd: _turnOffAfterScript);
+
+    // A cancelled run never applies the reset (the flag was cleared above
+    // and only set again when the resetCounter step actually executes).
+    if (_scriptDidReset) {
+      _stageIndex = 0;
+      _persist();
+    }
+  }
+
+  bool _scriptDidReset = false;
+
+  void _onCounterReset() {
+    _scriptDidReset = true;
   }
 
   void stopScript() => _runner.cancel();
+
+  /// Manually rewinds the stage counter to the first script.
+  void resetStageCounter() {
+    _stageIndex = 0;
+    _persist();
+  }
 
   Future<void> toggleTorch() async {
     await _torch.setOn(!_torch.isOn);
@@ -194,34 +259,78 @@ class AppController extends ChangeNotifier {
 
   // ------------------------------------------------------------- script edit
 
-  void addAction(ScriptAction action) {
-    _script = [..._script, action];
+  void addScript({bool copyCurrent = false}) {
+    final source = (_scripts.isNotEmpty && copyCurrent)
+        ? _scripts[_stageIndex.clamp(0, _scripts.length - 1)]
+        : defaultScript();
+    _scripts = [..._scripts, List.of(source)];
     _persist();
   }
 
-  void updateAction(int index, ScriptAction action) {
-    if (index < 0 || index >= _script.length) return;
-    final next = [..._script];
-    next[index] = action;
-    _script = next;
+  void removeScript(int index) {
+    if (index < 0 || index >= _scripts.length) return;
+    final next = [..._scripts]..removeAt(index);
+    if (next.isEmpty) next.add(defaultScript());
+    _scripts = next;
+    if (_stageIndex >= _scripts.length) _stageIndex = _scripts.length - 1;
     _persist();
   }
 
-  void removeAction(int index) {
-    if (index < 0 || index >= _script.length) return;
-    final next = [..._script]..removeAt(index);
-    _script = next;
+  void duplicateScript(int index) {
+    if (index < 0 || index >= _scripts.length) return;
+    final next = [..._scripts];
+    next.insert(index + 1, List.of(_scripts[index]));
+    _scripts = next;
     _persist();
   }
 
-  void reorderAction(int oldIndex, int newIndex) {
-    if (oldIndex < 0 || oldIndex >= _script.length) return;
-    if (newIndex < 0 || newIndex >= _script.length) return;
+  void addAction(ScriptAction action, {int scriptIndex = 0}) {
+    if (scriptIndex < 0 || scriptIndex >= _scripts.length) return;
+    final next = [..._scripts];
+    next[scriptIndex] = [...next[scriptIndex], action];
+    _scripts = next;
+    _persist();
+  }
+
+  void updateAction(
+    int scriptIndex,
+    int index,
+    ScriptAction action,
+  ) {
+    if (scriptIndex < 0 || scriptIndex >= _scripts.length) return;
+    final script = _scripts[scriptIndex];
+    if (index < 0 || index >= script.length) return;
+    final next = [..._scripts];
+    final updated = [...script];
+    updated[index] = action;
+    next[scriptIndex] = updated;
+    _scripts = next;
+    _persist();
+  }
+
+  void removeAction(int scriptIndex, int index) {
+    if (scriptIndex < 0 || scriptIndex >= _scripts.length) return;
+    final script = _scripts[scriptIndex];
+    if (index < 0 || index >= script.length) return;
+    final next = [..._scripts];
+    final updated = [...script]..removeAt(index);
+    next[scriptIndex] = updated;
+    _scripts = next;
+    _persist();
+  }
+
+  void reorderAction(int scriptIndex, int oldIndex, int newIndex) {
+    if (scriptIndex < 0 || scriptIndex >= _scripts.length) return;
+    final script = _scripts[scriptIndex];
+    if (oldIndex < 0 || oldIndex >= script.length) return;
+    if (newIndex < 0 || newIndex >= script.length) return;
     if (oldIndex == newIndex) return;
-    final next = [..._script];
-    final action = next.removeAt(oldIndex);
-    next.insert(newIndex, action);
-    _script = next;
+    final next = [..._scripts];
+    final updated = [...script];
+    final action = updated.removeAt(oldIndex);
+    updated.insert(newIndex, action);
+    next[scriptIndex] = updated;
+    _scripts = next;
     _persist();
   }
 
@@ -259,19 +368,41 @@ class AppController extends ChangeNotifier {
     final prefs = _prefs;
     if (prefs == null) return;
 
-    final rawScript = prefs.getString(_scriptKey);
-    if (rawScript != null) {
+    final rawScripts = prefs.getString(_scriptsKey);
+    if (rawScripts != null) {
       try {
-        final decoded = jsonDecode(rawScript) as List<dynamic>;
-        final parsed = decoded
-            .cast<Map<String, dynamic>>()
-            .map(ScriptAction.fromJson)
-            .toList();
-        if (parsed.isNotEmpty) _script = parsed;
+        final decoded = jsonDecode(rawScripts) as List<dynamic>;
+        final parsed = decoded.map((scriptRaw) {
+          final list = scriptRaw as List<dynamic>;
+          return list
+              .cast<Map<String, dynamic>>()
+              .map(ScriptAction.fromJson)
+              .toList();
+        }).where((s) => s.isNotEmpty).toList();
+        if (parsed.isNotEmpty) _scripts = parsed;
       } catch (_) {
         // keep the default script on malformed data
       }
+    } else {
+      // Migration from the old single-script format.
+      final rawScript = prefs.getString(_scriptKey);
+      if (rawScript != null) {
+        try {
+          final decoded = jsonDecode(rawScript) as List<dynamic>;
+          final parsed = decoded
+              .cast<Map<String, dynamic>>()
+              .map(ScriptAction.fromJson)
+              .toList();
+          if (parsed.isNotEmpty) _scripts = [parsed];
+        } catch (_) {
+          // keep the default script on malformed data
+        }
+      }
     }
+
+    _stageIndex = prefs.getInt(_stageIndexKey) ?? 0;
+    if (_stageIndex < 0) _stageIndex = 0;
+    if (_stageIndex > _scripts.length) _stageIndex = _scripts.length;
 
     _detectionEnabled = prefs.getBool(_detectionKey) ?? true;
     _threshold = prefs.getDouble(_thresholdKey) ?? 150;
@@ -290,9 +421,14 @@ class AppController extends ChangeNotifier {
       return;
     }
     prefs.setString(
-      _scriptKey,
-      jsonEncode(_script.map((action) => action.toJson()).toList()),
+      _scriptsKey,
+      jsonEncode(
+        _scripts
+            .map((script) => script.map((a) => a.toJson()).toList())
+            .toList(),
+      ),
     );
+    prefs.setInt(_stageIndexKey, _stageIndex);
     prefs.setBool(_detectionKey, _detectionEnabled);
     prefs.setDouble(_thresholdKey, _threshold);
     prefs.setInt(_triggerModeKey, _triggerMode.index);
@@ -306,6 +442,7 @@ class AppController extends ChangeNotifier {
     _magnetSubscription?.cancel();
     _magnet.dispose();
     _torch.setOn(false);
+    _music.dispose();
     super.dispose();
   }
 }

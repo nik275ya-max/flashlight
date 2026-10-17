@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -5,13 +6,25 @@ import '../controllers/app_controller.dart';
 import '../models/script_action.dart';
 import '../widgets/action_editor.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  int _selectedScript = 0;
 
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<AppController>();
-    final script = controller.script;
+    final scripts = controller.scripts;
+    if (_selectedScript >= scripts.length) {
+      _selectedScript = scripts.length - 1;
+    }
+    if (_selectedScript < 0) _selectedScript = 0;
+    final script = scripts[_selectedScript];
 
     return Scaffold(
       appBar: AppBar(title: const Text('Настройки')),
@@ -19,8 +32,51 @@ class SettingsScreen extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         children: [
           _SectionTitle(
-            title: 'Скрипт',
-            subtitle: 'Соберите последовательность любым количеством шагов. Она запустится при срабатывании магнитометра.',
+            title: 'Скрипты',
+            subtitle:
+                'Магнит запускает скрипты по очереди: сначала №1, затем №2 и т.д. '
+                'После последнего — стоп, пока не сбросите счётчик.',
+          ),
+          const SizedBox(height: 12),
+          _ScriptChips(
+            count: scripts.length,
+            selected: _selectedScript,
+            stageIndex: controller.stageIndex,
+            stageBlocked: controller.stageBlocked,
+            onSelect: (i) => setState(() => _selectedScript = i),
+            onAdd: () {
+              controller.addScript();
+              setState(() => _selectedScript = scripts.length);
+            },
+            onDuplicate: (i) {
+              controller.duplicateScript(i);
+              setState(() => _selectedScript = i + 1);
+            },
+            onRemove: (i) {
+              controller.removeScript(i);
+              setState(() {
+                if (_selectedScript >= i && _selectedScript > 0) {
+                  _selectedScript--;
+                }
+              });
+            },
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              dense: true,
+              leading: Icon(
+                controller.stageBlocked ? Icons.block : Icons.flag,
+                color: controller.stageBlocked
+                    ? Theme.of(context).colorScheme.error
+                    : Theme.of(context).colorScheme.primary,
+              ),
+              title: Text(controller.stageLabel),
+              trailing: TextButton(
+                onPressed: controller.resetStageCounter,
+                child: const Text('Сброс'),
+              ),
+            ),
           ),
           const SizedBox(height: 12),
           Row(
@@ -28,7 +84,7 @@ class SettingsScreen extends StatelessWidget {
               Expanded(
                 child: _AddButton(
                   icon: Icons.flashlight_on,
-                  label: 'Включить',
+                  label: 'Вкл',
                   onPressed: () => _add(
                     context,
                     controller,
@@ -40,7 +96,7 @@ class SettingsScreen extends StatelessWidget {
               Expanded(
                 child: _AddButton(
                   icon: Icons.flashlight_off,
-                  label: 'Выключить',
+                  label: 'Выкл',
                   onPressed: () => _add(
                     context,
                     controller,
@@ -58,6 +114,42 @@ class SettingsScreen extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _AddButton(
+                  icon: Icons.music_note,
+                  label: 'Музыка',
+                  onPressed: () => _addMusic(context, controller),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _AddButton(
+                  icon: Icons.music_off,
+                  label: 'Стоп-музыка',
+                  onPressed: () => _add(
+                    context,
+                    controller,
+                    const ScriptAction(type: ActionType.stopMusic),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _AddButton(
+                  icon: Icons.restart_alt,
+                  label: 'Сброс сч.',
+                  onPressed: () => _add(
+                    context,
+                    controller,
+                    const ScriptAction(type: ActionType.resetCounter),
+                  ),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
           if (script.isEmpty)
             const Card(
@@ -71,17 +163,19 @@ class SettingsScreen extends StatelessWidget {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               buildDefaultDragHandles: false,
-              onReorderItem: controller.reorderAction,
+              onReorderItem: (oldIndex, newIndex) =>
+                  controller.reorderAction(_selectedScript, oldIndex, newIndex),
               children: [
                 for (var i = 0; i < script.length; i++)
                   _ActionTile(
                     key: ValueKey(
-                      'action-$i-${script[i].type.name}-${script[i].delayMs}',
+                      'action-$_selectedScript-$i-${script[i].type.name}-'
+                      '${script[i].delayMs}-${script[i].filePath ?? ''}',
                     ),
                     index: i,
                     action: script[i],
                     onEdit: () => _edit(context, controller, i),
-                    onDelete: () => controller.removeAction(i),
+                    onDelete: () => controller.removeAction(_selectedScript, i),
                   ),
               ],
             ),
@@ -175,8 +269,8 @@ class SettingsScreen extends StatelessWidget {
     AppController controller,
     ScriptAction action,
   ) async {
-    controller.addAction(action);
-    _showAddedHint(context);
+    controller.addAction(action, scriptIndex: _selectedScript);
+    if (context.mounted) _showAddedHint(context);
   }
 
   Future<void> _addDelay(BuildContext context, AppController controller) async {
@@ -184,7 +278,20 @@ class SettingsScreen extends StatelessWidget {
       context,
       initial: const ScriptAction(type: ActionType.delay, delayMs: 1000),
     );
-    if (action != null) controller.addAction(action);
+    if (action != null) {
+      controller.addAction(action, scriptIndex: _selectedScript);
+    }
+  }
+
+  Future<void> _addMusic(BuildContext context, AppController controller) async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.audio);
+    final path = result?.files.single.path;
+    if (path == null) return;
+    controller.addAction(
+      ScriptAction(type: ActionType.playMusic, filePath: path),
+      scriptIndex: _selectedScript,
+    );
+    if (context.mounted) _showAddedHint(context);
   }
 
   Future<void> _edit(
@@ -194,9 +301,11 @@ class SettingsScreen extends StatelessWidget {
   ) async {
     final action = await showActionEditor(
       context,
-      initial: controller.script[index],
+      initial: controller.scripts[_selectedScript][index],
     );
-    if (action != null) controller.updateAction(index, action);
+    if (action != null) {
+      controller.updateAction(_selectedScript, index, action);
+    }
   }
 
   void _showAddedHint(BuildContext context) {
@@ -208,6 +317,80 @@ class SettingsScreen extends StatelessWidget {
           content: Text('Шаг добавлен в конец скрипта'),
         ),
       );
+  }
+}
+
+class _ScriptChips extends StatelessWidget {
+  const _ScriptChips({
+    required this.count,
+    required this.selected,
+    required this.stageIndex,
+    required this.stageBlocked,
+    required this.onSelect,
+    required this.onAdd,
+    required this.onDuplicate,
+    required this.onRemove,
+  });
+
+  final int count;
+  final int selected;
+  final int stageIndex;
+  final bool stageBlocked;
+  final ValueChanged<int> onSelect;
+  final VoidCallback onAdd;
+  final ValueChanged<int> onDuplicate;
+  final ValueChanged<int> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (var i = 0; i < count; i++)
+          GestureDetector(
+            onLongPress: () => _showMenu(context, i),
+            child: FilterChip(
+              label: Text('${i + 1}'),
+              selected: selected == i,
+              avatar: i == stageIndex && !stageBlocked
+                  ? const Icon(Icons.flag, size: 16)
+                  : null,
+              onSelected: (_) => onSelect(i),
+            ),
+          ),
+        ActionChip(
+          avatar: const Icon(Icons.add, size: 18),
+          label: const Text('+'),
+          onPressed: onAdd,
+        ),
+      ],
+    );
+  }
+
+  Future<void> _showMenu(BuildContext context, int index) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.copy),
+              title: const Text('Дублировать скрипт'),
+              onTap: () => Navigator.of(context).pop('duplicate'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Удалить скрипт'),
+              onTap: () => Navigator.of(context).pop('delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (action == 'duplicate') onDuplicate(index);
+    if (action == 'delete') onRemove(index);
   }
 }
 

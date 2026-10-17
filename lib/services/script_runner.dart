@@ -1,16 +1,20 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/script_action.dart';
+import 'music_service.dart';
 import 'torch_service.dart';
 
 /// Executes a list of [ScriptAction]s one after another.
 ///
 /// Only one run can happen at a time. A run can be cancelled between steps,
-/// and long delays are split into small ticks so cancellation stays responsive.
+/// and long delays are split into small ticks so cancellation stays
+/// responsive. [cancel] also stops any music that is still playing.
 class ScriptRunner {
-  ScriptRunner(this._torch);
+  ScriptRunner(this._torch, {MusicService? music})
+    : _music = music ?? MusicService();
 
   final TorchService _torch;
+  final MusicService _music;
 
   bool _running = false;
   bool get isRunning => _running;
@@ -20,8 +24,18 @@ class ScriptRunner {
 
   bool _cancelRequested = false;
 
+  Future<void>? _activeRun;
+
+  /// Completes when the current (or last) run finishes, including cancellation.
+  Future<void> get activeRun => _activeRun ?? Future<void>.value();
+
   /// Called whenever the running state or the active step changes.
   VoidCallback? onUpdate;
+
+  /// Called once when an [ActionType.resetCounter] step executes.
+  VoidCallback? onCounterReset;
+
+  MusicService get music => _music;
 
   Future<void> run(
     List<ScriptAction> actions, {
@@ -33,6 +47,18 @@ class ScriptRunner {
     _cancelRequested = false;
     _notify();
 
+    final future = _execute(actions, turnOffAtEnd: turnOffAtEnd);
+    _activeRun = future;
+    await future;
+    if (identical(_activeRun, future)) {
+      _activeRun = null;
+    }
+  }
+
+  Future<void> _execute(
+    List<ScriptAction> actions, {
+    required bool turnOffAtEnd,
+  }) async {
     for (var i = 0; i < actions.length; i++) {
       if (_cancelRequested) break;
       _currentIndex = i;
@@ -50,10 +76,24 @@ class ScriptRunner {
           await _torch.setOn(action.lightOn);
           await _wait(action.delayMs);
           break;
+        case ActionType.playMusic:
+          final path = action.filePath;
+          if (path != null && path.isNotEmpty) {
+            await _music.play(path);
+          }
+          break;
+        case ActionType.stopMusic:
+          await _music.stop();
+          break;
+        case ActionType.resetCounter:
+          onCounterReset?.call();
+          break;
       }
     }
 
-    if (turnOffAtEnd) {
+    if (_cancelRequested) {
+      await _music.stop();
+    } else if (turnOffAtEnd) {
       await _torch.setOn(false);
     }
 
