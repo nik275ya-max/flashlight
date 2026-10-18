@@ -33,7 +33,7 @@ class ScriptRunner {
   VoidCallback? onUpdate;
 
   /// Called once when an [ActionType.resetCounter] step executes.
-  VoidCallback? onCounterReset;
+  ValueChanged<int>? onCounterReset;
 
   MusicService get music => _music;
 
@@ -86,7 +86,7 @@ class ScriptRunner {
           await _music.stop();
           break;
         case ActionType.resetCounter:
-          onCounterReset?.call();
+          onCounterReset?.call(action.resetToScriptIndex);
           break;
       }
     }

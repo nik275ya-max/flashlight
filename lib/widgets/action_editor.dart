@@ -10,19 +10,24 @@ import '../models/script_action.dart';
 Future<ScriptAction?> showActionEditor(
   BuildContext context, {
   ScriptAction? initial,
+  int scriptCount = 1,
 }) {
   return showModalBottomSheet<ScriptAction>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (context) => _ActionEditor(initial: initial),
+    builder: (context) => _ActionEditor(
+      initial: initial,
+      scriptCount: scriptCount,
+    ),
   );
 }
 
 class _ActionEditor extends StatefulWidget {
-  const _ActionEditor({this.initial});
+  const _ActionEditor({this.initial, required this.scriptCount});
 
   final ScriptAction? initial;
+  final int scriptCount;
 
   @override
   State<_ActionEditor> createState() => _ActionEditorState();
@@ -32,6 +37,7 @@ class _ActionEditorState extends State<_ActionEditor> {
   late ActionType _type;
   late bool _lightOn;
   late String? _filePath;
+  late int _resetTarget;
   late final TextEditingController _msController;
 
   @override
@@ -42,6 +48,7 @@ class _ActionEditorState extends State<_ActionEditor> {
     _type = initial.type;
     _lightOn = initial.lightOn;
     _filePath = initial.filePath;
+    _resetTarget = initial.resetToScriptIndex.clamp(0, widget.scriptCount - 1);
     _msController = TextEditingController(text: '${initial.delayMs}');
   }
 
@@ -139,6 +146,24 @@ class _ActionEditorState extends State<_ActionEditor> {
             ],
             if (_type == ActionType.resetCounter) ...[
               const SizedBox(height: 24),
+              DropdownButtonFormField<int>(
+                initialValue: _resetTarget,
+                decoration: const InputDecoration(
+                  labelText: 'Target script',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  for (var i = 0; i < widget.scriptCount; i++)
+                    DropdownMenuItem(
+                      value: i,
+                      child: Text('Script ${i + 1}'),
+                    ),
+                ],
+                onChanged: (value) {
+                  if (value != null) setState(() => _resetTarget = value);
+                },
+              ),
+              const SizedBox(height: 12),
               Text(
                 'После выполнения этого шага счётчик срабатываний '
                 'вернётся на первый скрипт.',
@@ -213,6 +238,7 @@ class _ActionEditorState extends State<_ActionEditor> {
           ? _lightOn
           : _type == ActionType.torchOn,
       filePath: _type == ActionType.playMusic ? _filePath : null,
+      resetToScriptIndex: _type == ActionType.resetCounter ? _resetTarget : 0,
     );
     Navigator.of(context).pop(action);
   }

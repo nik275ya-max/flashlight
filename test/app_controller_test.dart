@@ -137,6 +137,20 @@ void main() {
     controller.dispose();
   });
 
+  test('resetCounter can rewind to a later script', () async {
+    final controller = _controller(<int>[]);
+    _replaceScript(
+      controller,
+      const ScriptAction(type: ActionType.resetCounter, resetToScriptIndex: 1),
+    );
+    controller.addScript();
+    controller.addScript();
+
+    await controller.runScript();
+    expect(controller.stageIndex, 1);
+    controller.dispose();
+  });
+
   test('the default haptic path never throws', () async {
     final controller = AppController(
       torchService: _FakeTorch(),

@@ -277,6 +277,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final action = await showActionEditor(
       context,
       initial: const ScriptAction(type: ActionType.delay, delayMs: 1000),
+      scriptCount: controller.scripts.length,
     );
     if (action != null) {
       controller.addAction(action, scriptIndex: _selectedScript);
@@ -302,6 +303,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final action = await showActionEditor(
       context,
       initial: controller.scripts[_selectedScript][index],
+      scriptCount: controller.scripts.length,
     );
     if (action != null) {
       controller.updateAction(_selectedScript, index, action);

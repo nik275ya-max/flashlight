@@ -128,8 +128,6 @@ class _StatusText extends StatelessWidget {
       text = 'Нажмите, чтобы включить';
     }
 
-    final stageLabel = controller.stageLabel;
-
     return Column(
       children: [
         Text(
@@ -137,16 +135,6 @@ class _StatusText extends StatelessWidget {
           style: TextStyle(
             fontSize: 16,
             color: lit ? _litForeground.withValues(alpha: 0.75) : Colors.white54,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          stageLabel,
-          style: TextStyle(
-            fontSize: 13,
-            color: lit
-                ? _litForeground.withValues(alpha: 0.55)
-                : Colors.white38,
           ),
         ),
       ],

@@ -54,13 +54,15 @@ void main() {
   });
 
   test('resetCounter fires the onCounterReset callback', () async {
-    var resets = 0;
+    final resets = <int>[];
     final runner = ScriptRunner(_FakeTorch(), music: _FakeMusic())
-      ..onCounterReset = () => resets++;
+      ..onCounterReset = resets.add;
 
-    await runner.run(const [ScriptAction(type: ActionType.resetCounter)]);
+    await runner.run(const [
+      ScriptAction(type: ActionType.resetCounter, resetToScriptIndex: 2),
+    ]);
 
-    expect(resets, 1);
+    expect(resets, [2]);
   });
 
   test('cancel stops music and exposes activeRun', () async {

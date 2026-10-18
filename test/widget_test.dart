@@ -21,6 +21,7 @@ void main() {
         ScriptAction(type: ActionType.torchOn),
         ScriptAction(type: ActionType.torchOff),
         ScriptAction(type: ActionType.delay, delayMs: 1500, lightOn: true),
+        ScriptAction(type: ActionType.resetCounter, resetToScriptIndex: 2),
       ];
 
       final restored = actions
@@ -31,6 +32,7 @@ void main() {
         expect(restored[i].type, actions[i].type);
         expect(restored[i].delayMs, actions[i].delayMs);
         expect(restored[i].lightOn, actions[i].lightOn);
+        expect(restored[i].resetToScriptIndex, actions[i].resetToScriptIndex);
       }
     });
 

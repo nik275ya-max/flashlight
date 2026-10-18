@@ -8,7 +8,7 @@ enum ActionType { torchOn, torchOff, delay, playMusic, stopMusic, resetCounter }
 /// A step is either turning the torch on, turning it off, waiting for
 /// [delayMs] milliseconds, playing a local audio file ([filePath], only for
 /// [ActionType.playMusic]), stopping audio, or resetting the stage counter
-/// back to the first script.
+/// back to a selected script.
 @immutable
 class ScriptAction {
   const ScriptAction({
@@ -16,12 +16,14 @@ class ScriptAction {
     this.delayMs = 1000,
     this.lightOn = false,
     this.filePath,
+    this.resetToScriptIndex = 0,
   });
 
   final ActionType type;
   final int delayMs;
   final bool lightOn;
   final String? filePath;
+  final int resetToScriptIndex;
 
   bool get isDelay => type == ActionType.delay;
 
@@ -86,6 +88,8 @@ class ScriptAction {
     'type': type.name,
     'delayMs': delayMs,
     'lightOn': lightOn,
+    if (type == ActionType.resetCounter)
+      'resetToScriptIndex': resetToScriptIndex,
     if (filePath != null) 'filePath': filePath,
   };
 
@@ -99,6 +103,7 @@ class ScriptAction {
       delayMs: (json['delayMs'] as num?)?.toInt() ?? 1000,
       lightOn: json['lightOn'] as bool? ?? false,
       filePath: json['filePath'] as String?,
+      resetToScriptIndex: (json['resetToScriptIndex'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -107,12 +112,14 @@ class ScriptAction {
     int? delayMs,
     bool? lightOn,
     String? filePath,
+    int? resetToScriptIndex,
   }) {
     return ScriptAction(
       type: type ?? this.type,
       delayMs: delayMs ?? this.delayMs,
       lightOn: lightOn ?? this.lightOn,
       filePath: filePath ?? this.filePath,
+      resetToScriptIndex: resetToScriptIndex ?? this.resetToScriptIndex,
     );
   }
 }

@@ -210,7 +210,7 @@ class AppController extends ChangeNotifier {
   /// Stage logic (variant B): the stage counter is incremented immediately
   /// when a trigger fires, so a new trigger always starts the *next* script.
   /// If the running script contains [ActionType.resetCounter] and completes
-  /// without being cancelled, the counter is set back to the first script.
+  /// without being cancelled, the counter moves to its selected script.
   /// A cancelled script never applies the reset.
   Future<void> runScript() async {
     if (stageBlocked || _scripts.isEmpty) return;
@@ -227,21 +227,21 @@ class AppController extends ChangeNotifier {
 
     if (_hapticOnScript) unawaited(_hapticFeedback());
 
-    _scriptDidReset = false;
+    _scriptResetTarget = null;
     await _runner.run(_scripts[stage], turnOffAtEnd: _turnOffAfterScript);
 
     // A cancelled run never applies the reset (the flag was cleared above
     // and only set again when the resetCounter step actually executes).
-    if (_scriptDidReset) {
-      _stageIndex = 0;
+    if (_scriptResetTarget != null) {
+      _stageIndex = _scriptResetTarget!;
       _persist();
     }
   }
 
-  bool _scriptDidReset = false;
+  int? _scriptResetTarget;
 
-  void _onCounterReset() {
-    _scriptDidReset = true;
+  void _onCounterReset(int target) {
+    _scriptResetTarget = target.clamp(0, _scripts.length - 1);
   }
 
   void stopScript() => _runner.cancel();
@@ -271,7 +271,7 @@ class AppController extends ChangeNotifier {
     if (index < 0 || index >= _scripts.length) return;
     final next = [..._scripts]..removeAt(index);
     if (next.isEmpty) next.add(defaultScript());
-    _scripts = next;
+    _scripts = _remapResetTargets(next, removedIndex: index);
     if (_stageIndex >= _scripts.length) _stageIndex = _scripts.length - 1;
     _persist();
   }
@@ -280,8 +280,35 @@ class AppController extends ChangeNotifier {
     if (index < 0 || index >= _scripts.length) return;
     final next = [..._scripts];
     next.insert(index + 1, List.of(_scripts[index]));
-    _scripts = next;
+    _scripts = _remapResetTargets(next, insertedIndex: index + 1);
     _persist();
+  }
+
+  List<List<ScriptAction>> _remapResetTargets(
+    List<List<ScriptAction>> scripts, {
+    int? removedIndex,
+    int? insertedIndex,
+  }) {
+    return [
+      for (final script in scripts)
+        [
+          for (final action in script)
+            if (action.type != ActionType.resetCounter)
+              action
+            else
+              action.copyWith(
+                resetToScriptIndex: removedIndex != null
+                    ? action.resetToScriptIndex == removedIndex
+                        ? (scripts.length - 1).clamp(0, removedIndex)
+                        : action.resetToScriptIndex > removedIndex
+                        ? action.resetToScriptIndex - 1
+                        : action.resetToScriptIndex
+                    : action.resetToScriptIndex >= insertedIndex!
+                    ? action.resetToScriptIndex + 1
+                    : action.resetToScriptIndex,
+              ),
+        ],
+    ];
   }
 
   void addAction(ScriptAction action, {int scriptIndex = 0}) {
