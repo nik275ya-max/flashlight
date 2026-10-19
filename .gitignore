@@ -46,3 +46,9 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Local build logs / scratch files
+build_log.txt
+build_out.txt
+build_stack.txt
+gradle_stack.txt

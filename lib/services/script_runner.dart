@@ -37,6 +37,11 @@ class ScriptRunner {
 
   MusicService get music => _music;
 
+  /// Resolves the effective playback volume for a [ActionType.playMusic] step.
+  /// The controller plugs a normalizer here so a global override can ignore
+  /// per-track volumes and play everything at the quietest track's level.
+  double Function(ScriptAction)? volumeFor;
+
   Future<void> run(
     List<ScriptAction> actions, {
     bool turnOffAtEnd = true,
@@ -79,6 +84,8 @@ class ScriptRunner {
         case ActionType.playMusic:
           final path = action.filePath;
           if (path != null && path.isNotEmpty) {
+            final v = volumeFor?.call(action) ?? action.effectiveVolume;
+            await _music.setVolume(v);
             await _music.play(path);
           }
           break;

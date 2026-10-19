@@ -45,6 +45,26 @@ void main() {
       expect(action.delayMs, 250);
     });
 
+    test('serialises and restores playMusic volume', () {
+      const action = ScriptAction(
+        type: ActionType.playMusic,
+        filePath: '/a.mp3',
+        volume: 0.35,
+      );
+      final restored = ScriptAction.fromJson(action.toJson());
+      expect(restored.type, ActionType.playMusic);
+      expect(restored.filePath, '/a.mp3');
+      expect(restored.volume, 0.35);
+    });
+
+    test('playMusic volume defaults to full when absent in json', () {
+      final restored = ScriptAction.fromJson(const {
+        'type': 'playMusic',
+        'filePath': '/a.mp3',
+      });
+      expect(restored.volume, 1.0);
+    });
+
     test('describes a delay with the light state', () {
       const action = ScriptAction(type: ActionType.delay, delayMs: 1500);
       expect(action.title, contains('Задержка'));

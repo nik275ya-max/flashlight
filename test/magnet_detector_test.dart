@@ -23,22 +23,20 @@ void main() {
       for (var i = 0; i < 6; i++) {
         detector.addSample(50);
       }
-      // Median becomes 150 only on the third 150 sample, then the EMA starts
-      // gliding from 50 towards 150 with alpha = 0.3.
+      // Median becomes 150 on the second 150 sample, then the EMA starts
+      // gliding from 50 towards 150 with alpha = 0.6.
       detector.addSample(150);
       detector.addSample(150);
-      expect(detector.addSample(150), isNull);
-      expect(detector.filtered, closeTo(80, 0.5));
+      expect(detector.filtered, closeTo(110, 0.5));
       expect(detector.filtered, lessThan(150));
       expect(detector.detected, isFalse);
     });
   });
 
   group('confirmation', () {
-    test('a sustained rise triggers only after confirmSamples', () {
+    test('a sustained rise triggers after the configured confirmation', () {
       final detector = MagnetDetector(threshold: 150);
 
-      expect(detector.addSample(200), isNull);
       expect(detector.addSample(200), isNull);
       expect(detector.addSample(200), MagnetEvent.approach);
       expect(detector.detected, isTrue);
@@ -90,7 +88,7 @@ void main() {
       }
 
       detector.threshold = 300;
-      expect(detector.releaseThreshold, closeTo(180, 0.001));
+      expect(detector.releaseThreshold, closeTo(210, 0.001));
       for (var i = 0; i < 20; i++) {
         expect(detector.addSample(200), isNull);
       }

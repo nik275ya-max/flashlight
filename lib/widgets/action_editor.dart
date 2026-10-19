@@ -11,6 +11,7 @@ Future<ScriptAction?> showActionEditor(
   BuildContext context, {
   ScriptAction? initial,
   int scriptCount = 1,
+  bool normalizeVolume = false,
 }) {
   return showModalBottomSheet<ScriptAction>(
     context: context,
@@ -19,15 +20,21 @@ Future<ScriptAction?> showActionEditor(
     builder: (context) => _ActionEditor(
       initial: initial,
       scriptCount: scriptCount,
+      normalizeVolume: normalizeVolume,
     ),
   );
 }
 
 class _ActionEditor extends StatefulWidget {
-  const _ActionEditor({this.initial, required this.scriptCount});
+  const _ActionEditor({
+    this.initial,
+    required this.scriptCount,
+    this.normalizeVolume = false,
+  });
 
   final ScriptAction? initial;
   final int scriptCount;
+  final bool normalizeVolume;
 
   @override
   State<_ActionEditor> createState() => _ActionEditorState();
@@ -37,6 +44,7 @@ class _ActionEditorState extends State<_ActionEditor> {
   late ActionType _type;
   late bool _lightOn;
   late String? _filePath;
+  late double _volume;
   late int _resetTarget;
   late final TextEditingController _msController;
 
@@ -48,6 +56,7 @@ class _ActionEditorState extends State<_ActionEditor> {
     _type = initial.type;
     _lightOn = initial.lightOn;
     _filePath = initial.filePath;
+    _volume = initial.effectiveVolume;
     _resetTarget = initial.resetToScriptIndex.clamp(0, widget.scriptCount - 1);
     _msController = TextEditingController(text: '${initial.delayMs}');
   }
@@ -143,6 +152,28 @@ class _ActionEditorState extends State<_ActionEditor> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
+              const SizedBox(height: 16),
+              Text('Громкость: ${(_volume * 100).round()}%'),
+              Slider(
+                value: _volume,
+                min: 0.0,
+                max: 1.0,
+                divisions: 100,
+                label: '${(_volume * 100).round()}%',
+                onChanged: widget.normalizeVolume
+                    ? null
+                    : (value) => setState(() => _volume = value),
+              ),
+              if (widget.normalizeVolume)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Индивидуальная громкость игнорируется — включена нормализация.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.error,
+                    ),
+                  ),
+                ),
             ],
             if (_type == ActionType.resetCounter) ...[
               const SizedBox(height: 24),
@@ -238,6 +269,7 @@ class _ActionEditorState extends State<_ActionEditor> {
           ? _lightOn
           : _type == ActionType.torchOn,
       filePath: _type == ActionType.playMusic ? _filePath : null,
+      volume: _type == ActionType.playMusic ? _volume : 1.0,
       resetToScriptIndex: _type == ActionType.resetCounter ? _resetTarget : 0,
     );
     Navigator.of(context).pop(action);

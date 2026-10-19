@@ -15,13 +15,31 @@ class MusicService {
   String? lastError;
   String? _currentPath;
 
+  /// Volume applied on the next [play] and live via [setVolume], 0.0–1.0.
+  double _volume = 1.0;
+  double get volume => _volume;
+
   String? get currentPath => _currentPath;
   bool get isPlaying => _player?.state == PlayerState.playing;
+
+  /// Stores [volume] (clamped to 0.0–1.0) and pushes it to the player when one
+  /// exists. Safe to call before [play]; the value sticks across plays.
+  Future<void> setVolume(double volume) async {
+    _volume = volume.clamp(0.0, 1.0);
+    final player = _player;
+    if (player == null) return;
+    try {
+      await player.setVolume(_volume);
+    } on Exception catch (_) {
+      // A failed volume call must not break playback.
+    }
+  }
 
   Future<void> play(String path) async {
     try {
       final player = _player ??= _injectedPlayer ?? AudioPlayer();
       await player.stop();
+      await player.setVolume(_volume);
       await player.play(DeviceFileSource(path));
       _currentPath = path;
       lastError = null;

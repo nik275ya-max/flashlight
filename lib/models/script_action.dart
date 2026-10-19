@@ -7,8 +7,8 @@ enum ActionType { torchOn, torchOff, delay, playMusic, stopMusic, resetCounter }
 ///
 /// A step is either turning the torch on, turning it off, waiting for
 /// [delayMs] milliseconds, playing a local audio file ([filePath], only for
-/// [ActionType.playMusic]), stopping audio, or resetting the stage counter
-/// back to a selected script.
+/// [ActionType.playMusic]) at [volume] (0.0–1.0), stopping audio, or resetting
+/// the stage counter back to a selected script.
 @immutable
 class ScriptAction {
   const ScriptAction({
@@ -16,6 +16,7 @@ class ScriptAction {
     this.delayMs = 1000,
     this.lightOn = false,
     this.filePath,
+    this.volume = 1.0,
     this.resetToScriptIndex = 0,
   });
 
@@ -23,9 +24,15 @@ class ScriptAction {
   final int delayMs;
   final bool lightOn;
   final String? filePath;
+
+  /// Playback volume for [ActionType.playMusic], clamped to 0.0–1.0.
+  final double volume;
   final int resetToScriptIndex;
 
   bool get isDelay => type == ActionType.delay;
+
+  /// [volume] clamped into the valid 0.0–1.0 range.
+  double get effectiveVolume => volume.clamp(0.0, 1.0);
 
   String get title {
     switch (type) {
@@ -48,6 +55,9 @@ class ScriptAction {
     }
   }
 
+  /// Volume as a human readable percent, e.g. «80%».
+  String get volumeLabel => '${(effectiveVolume * 100).round()}%';
+
   String get subtitle {
     switch (type) {
       case ActionType.torchOn:
@@ -59,7 +69,7 @@ class ScriptAction {
             ? 'Ждать $delayMs мс, фонарик горит'
             : 'Ждать $delayMs мс, фонарик выключен';
       case ActionType.playMusic:
-        return 'Проиграть выбранный аудиофайл';
+        return 'Проиграть выбранный аудиофайл (громкость $volumeLabel)';
       case ActionType.stopMusic:
         return 'Остановить воспроизведение';
       case ActionType.resetCounter:
@@ -90,6 +100,7 @@ class ScriptAction {
     'lightOn': lightOn,
     if (type == ActionType.resetCounter)
       'resetToScriptIndex': resetToScriptIndex,
+    if (type == ActionType.playMusic) 'volume': effectiveVolume,
     if (filePath != null) 'filePath': filePath,
   };
 
@@ -103,6 +114,7 @@ class ScriptAction {
       delayMs: (json['delayMs'] as num?)?.toInt() ?? 1000,
       lightOn: json['lightOn'] as bool? ?? false,
       filePath: json['filePath'] as String?,
+      volume: (json['volume'] as num?)?.toDouble() ?? 1.0,
       resetToScriptIndex: (json['resetToScriptIndex'] as num?)?.toInt() ?? 0,
     );
   }
@@ -112,6 +124,7 @@ class ScriptAction {
     int? delayMs,
     bool? lightOn,
     String? filePath,
+    double? volume,
     int? resetToScriptIndex,
   }) {
     return ScriptAction(
@@ -119,6 +132,7 @@ class ScriptAction {
       delayMs: delayMs ?? this.delayMs,
       lightOn: lightOn ?? this.lightOn,
       filePath: filePath ?? this.filePath,
+      volume: volume ?? this.volume,
       resetToScriptIndex: resetToScriptIndex ?? this.resetToScriptIndex,
     );
   }

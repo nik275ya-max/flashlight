@@ -24,10 +24,10 @@ enum MagnetEvent {
 class MagnetDetector {
   MagnetDetector({
     required this.threshold,
-    this.releaseFactor = 0.6,
-    this.windowSize = 5,
-    this.smoothing = 0.3,
-    this.confirmSamples = 3,
+    this.releaseFactor = 0.7,
+    this.windowSize = 3,
+    this.smoothing = 0.6,
+    this.confirmSamples = 2,
     this.cooldown = const Duration(seconds: 2),
     this.clock = DateTime.now,
   }) {

@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/script_action.dart';
 import '../services/haptic_service.dart';
+import '../services/loudness_service.dart';
 import '../services/magnet_detector.dart';
 import '../services/magnet_service.dart';
 import '../services/music_service.dart';
@@ -40,10 +42,15 @@ class AppController extends ChangeNotifier {
     required MagnetService magnetService,
     Future<void> Function()? hapticFeedback,
     MusicService? musicService,
+    LoudnessService? loudnessService,
+    Future<void> Function(bool keepOn)? setKeepScreenOnPlatform,
   }) : _torch = torchService,
        _magnet = magnetService,
        _music = musicService ?? MusicService(),
-       _hapticFeedback = hapticFeedback ?? HapticService().buzz {
+       _loudness = loudnessService,
+       _hapticFeedback = hapticFeedback ?? HapticService().buzz,
+       // ignore: prefer_initializing_formals - keep the public param name
+       _setKeepScreenOnPlatform = setKeepScreenOnPlatform {
     _runner = ScriptRunner(_torch, music: _music);
     _runner.onUpdate = notifyListeners;
     _runner.onCounterReset = _onCounterReset;
@@ -53,7 +60,9 @@ class AppController extends ChangeNotifier {
   final TorchService _torch;
   final MagnetService _magnet;
   final MusicService _music;
+  final LoudnessService? _loudness;
   final Future<void> Function() _hapticFeedback;
+  final Future<void> Function(bool)? _setKeepScreenOnPlatform;
   late final ScriptRunner _runner;
   late final MagnetDetector _detector;
 
@@ -69,6 +78,8 @@ class AppController extends ChangeNotifier {
   static const _turnOffKey = 'turnOffAfterScript';
   static const _scriptKey = 'script'; // legacy
   static const _hapticKey = 'hapticOnScript';
+  static const _normalizeVolumeKey = 'normalizeVolume';
+  static const _keepScreenOnKey = 'keepScreenOn';
 
   // ---------------------------------------------------------------- settings
 
@@ -109,6 +120,66 @@ class AppController extends ChangeNotifier {
   bool _hapticOnScript = true;
   bool get hapticOnScript => _hapticOnScript;
 
+  /// When true every track plays at a waveform-derived volume so the perceived
+  /// loudness matches the quietest track. Individual [ScriptAction.volume]
+  /// settings are ignored. Falls back to per-track volume on platforms without
+  /// loudness analysis or while no measurement is available.
+  bool _normalizeVolume = false;
+  bool get normalizeVolume => _normalizeVolume;
+
+  /// The minimum RMS (dBFS) across every analyzed playMusic track. The
+  /// quietest track drives the shared target loudness. Returns null when no
+  /// track has been measured yet.
+  double? get minLoudnessDb {
+    final loudness = _loudness;
+    if (loudness == null) return null;
+    double? min;
+    for (final action in _scripts.expand((s) => s)) {
+      if (action.type != ActionType.playMusic) continue;
+      final db = loudness.loudnessOf(action.filePath ?? '');
+      if (db == null) continue;
+      if (min == null || db < min) min = db;
+    }
+    return min;
+  }
+
+  /// Effective playback volume for [action] under the current normalize state.
+  ///
+  /// When normalization is on and a loudness measurement exists for the
+  /// track, scales the track so its perceived loudness matches [minLoudnessDb]
+  /// (quietest plays at full, louder ones attenuated). Returns 1.0 when no
+  /// measurement is available so playback never goes silent.
+  double volumeForAction(ScriptAction action) {
+    if (!_normalizeVolume) return action.effectiveVolume;
+    final loudness = _loudness;
+    final path = action.filePath;
+    if (loudness == null || path == null) return action.effectiveVolume;
+    final lMin = minLoudnessDb;
+    final lI = loudness.loudnessOf(path);
+    if (lMin == null || lI == null) return action.effectiveVolume;
+    // v = 10^((L_min - L_i)/20): quietest -> 1.0, louder -> attenuated.
+    final v = math.pow(10.0, (lMin - lI) / 20.0).toDouble();
+    return v.clamp(0.0, 1.0);
+  }
+
+  /// Analyzes (or re-analyzes) [path] and caches the RMS. Returns false when
+  /// the platform cannot measure loudness so callers can fall back gracefully.
+  Future<bool> ensureLoudness(String path, {bool force = false}) async {
+    final loudness = _loudness;
+    if (loudness == null) return false;
+    final db = await loudness.analyze(path, force: force);
+    notifyListeners();
+    return db != null;
+  }
+
+  /// The cached RMS (dBFS) for a given file path, or null when unknown.
+  double? loudnessOf(String path) => _loudness?.loudnessOf(path);
+
+  /// When true the device screen stays on (no auto-lock) so the magnet loop
+  /// keeps running and the UI stays responsive over long sessions.
+  bool _keepScreenOn = true;
+  bool get keepScreenOn => _keepScreenOn;
+
   // ---------------------------------------------------------------- runtime
 
   double _magnitude = 0;
@@ -135,7 +206,7 @@ class AppController extends ChangeNotifier {
 
   bool get initialized => _initialized;
 
-  static const _sensorNotifyInterval = Duration(milliseconds: 200);
+  static const _sensorNotifyInterval = Duration(milliseconds: 100);
   DateTime _lastSensorNotify = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// The magnitude below which the magnet is considered released again.
@@ -150,10 +221,33 @@ class AppController extends ChangeNotifier {
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
     _load();
+    await _loudness?.load();
     await _torch.checkAvailability();
     _startMagnet();
+    _applyVolumeResolver();
+    await _applyKeepScreenOn();
     _initialized = true;
     notifyListeners();
+  }
+
+  /// Wires the runner's volume resolver to the current [normalizeVolume]
+  /// state. Call this whenever the setting or the script set changes.
+  void _applyVolumeResolver() {
+    if (_normalizeVolume && _loudness != null) {
+      _runner.volumeFor = volumeForAction;
+    } else {
+      _runner.volumeFor = null;
+    }
+  }
+
+  Future<void> _applyKeepScreenOn() async {
+    final cb = _setKeepScreenOnPlatform;
+    if (cb == null) return;
+    try {
+      await cb(_keepScreenOn);
+    } catch (_) {
+      // Platform channel failures must never block the app.
+    }
   }
 
   // ------------------------------------------------------------- magnet loop
@@ -170,7 +264,7 @@ class AppController extends ChangeNotifier {
   void _onReading(MagneticReading reading) {
     final event = _detector.addSample(reading.magnitude);
 
-    _magnitude = _detector.filtered;
+    _magnitude = reading.magnitude;
     _fieldX = reading.x;
     _fieldY = reading.y;
     _fieldZ = reading.z;
@@ -228,6 +322,7 @@ class AppController extends ChangeNotifier {
     if (_hapticOnScript) unawaited(_hapticFeedback());
 
     _scriptResetTarget = null;
+    _applyVolumeResolver();
     await _runner.run(_scripts[stage], turnOffAtEnd: _turnOffAfterScript);
 
     // A cancelled run never applies the reset (the flag was cleared above
@@ -389,6 +484,18 @@ class AppController extends ChangeNotifier {
     _persist();
   }
 
+  void setNormalizeVolume(bool value) {
+    _normalizeVolume = value;
+    _applyVolumeResolver();
+    _persist();
+  }
+
+  void setKeepScreenOn(bool value) {
+    _keepScreenOn = value;
+    _persist();
+    unawaited(_applyKeepScreenOn());
+  }
+
   // ------------------------------------------------------------- persistence
 
   void _load() {
@@ -439,6 +546,8 @@ class AppController extends ChangeNotifier {
         TriggerMode.values[modeIndex.clamp(0, TriggerMode.values.length - 1)];
     _turnOffAfterScript = prefs.getBool(_turnOffKey) ?? true;
     _hapticOnScript = prefs.getBool(_hapticKey) ?? true;
+    _normalizeVolume = prefs.getBool(_normalizeVolumeKey) ?? false;
+    _keepScreenOn = prefs.getBool(_keepScreenOnKey) ?? true;
   }
 
   void _persist() {
@@ -461,6 +570,8 @@ class AppController extends ChangeNotifier {
     prefs.setInt(_triggerModeKey, _triggerMode.index);
     prefs.setBool(_turnOffKey, _turnOffAfterScript);
     prefs.setBool(_hapticKey, _hapticOnScript);
+    prefs.setBool(_normalizeVolumeKey, _normalizeVolume);
+    prefs.setBool(_keepScreenOnKey, _keepScreenOn);
     notifyListeners();
   }
 

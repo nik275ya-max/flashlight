@@ -17,7 +17,13 @@ class _FakeTorch extends TorchService {
 
 class _FakeMusic extends MusicService {
   final List<String> plays = [];
+  final List<double> volumes = [];
   int stops = 0;
+
+  @override
+  Future<void> setVolume(double volume) async {
+    volumes.add(volume);
+  }
 
   @override
   Future<void> play(String path) async {
@@ -99,5 +105,52 @@ void main() {
     await runner.run(const [ScriptAction(type: ActionType.playMusic)]);
 
     expect(music.plays, isEmpty);
+  });
+
+  test('playMusic sets the track volume before playing', () async {
+    final music = _FakeMusic();
+    final runner = ScriptRunner(_FakeTorch(), music: music);
+
+    await runner.run(const [
+      ScriptAction(
+        type: ActionType.playMusic,
+        filePath: '/tmp/a.mp3',
+        volume: 0.5,
+      ),
+    ]);
+
+    expect(music.volumes, [0.5]);
+    expect(music.plays, ['/tmp/a.mp3']);
+  });
+
+  test('volumeFor resolver overrides the per-track volume', () async {
+    final music = _FakeMusic();
+    final runner = ScriptRunner(_FakeTorch(), music: music)
+      ..volumeFor = (_) => 0.3;
+
+    await runner.run(const [
+      ScriptAction(
+        type: ActionType.playMusic,
+        filePath: '/tmp/a.mp3',
+        volume: 0.9,
+      ),
+    ]);
+
+    expect(music.volumes, [0.3]);
+  });
+
+  test('volume is clamped into 0.0–1.0', () async {
+    final music = _FakeMusic();
+    final runner = ScriptRunner(_FakeTorch(), music: music);
+
+    await runner.run(const [
+      ScriptAction(
+        type: ActionType.playMusic,
+        filePath: '/tmp/a.mp3',
+        volume: 1.5,
+      ),
+    ]);
+
+    expect(music.volumes, [1.0]);
   });
 }

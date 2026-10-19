@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -174,6 +176,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     index: i,
                     action: script[i],
+                    loudnessDb: script[i].filePath == null
+                        ? null
+                        : controller.loudnessOf(script[i].filePath!),
+                    onRecalc: script[i].filePath == null
+                        ? null
+                        : () => controller.ensureLoudness(
+                              script[i].filePath!,
+                              force: true,
+                            ),
                     onEdit: () => _edit(context, controller, i),
                     onDelete: () => controller.removeAction(_selectedScript, i),
                   ),
@@ -259,6 +270,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onChanged: controller.setHapticOnScript,
             ),
           ),
+          const SizedBox(height: 24),
+          const Divider(),
+          _SectionTitle(
+            title: 'Громкость',
+            subtitle:
+                'У каждого трека своя громкость. Включите нормализацию — '
+                'все треки играют на уровне самого тихого по замеру громкости '
+                '(waveform), индивидуальные настройки игнорируются.',
+          ),
+          Card(
+            child: SwitchListTile(
+              title: const Text('Нормализация громкости'),
+              subtitle: Text(
+                controller.normalizeVolume
+                    ? () {
+                        final min = controller.minLoudnessDb;
+                        return min == null
+                            ? 'Ждите замера громкости треков…'
+                            : 'Все треки звучат на уровне самого тихого (~${min.toStringAsFixed(1)} дБ)';
+                      }()
+                    : 'Каждый трек играет на своей громкости',
+              ),
+              value: controller.normalizeVolume,
+              onChanged: controller.setNormalizeVolume,
+            ),
+          ),
+          if (controller.normalizeVolume)
+            Padding(
+              padding: const EdgeInsets.only(top: 4, left: 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.refresh, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Перевключите нормализацию, если замеры ещё идут.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 24),
+          const Divider(),
+          _SectionTitle(
+            title: 'Экран',
+            subtitle:
+                'Держать экран включённым, чтобы приложение не уходило в спящий '
+                'режим и магнит продолжал запускать скрипты.',
+          ),
+          Card(
+            child: SwitchListTile(
+              title: const Text('Не блокировать экран'),
+              subtitle: const Text('Экран не гаснет и не блокируется автоматически'),
+              value: controller.keepScreenOn,
+              onChanged: controller.setKeepScreenOn,
+            ),
+          ),
         ],
       ),
     );
@@ -278,6 +347,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context,
       initial: const ScriptAction(type: ActionType.delay, delayMs: 1000),
       scriptCount: controller.scripts.length,
+      normalizeVolume: controller.normalizeVolume,
     );
     if (action != null) {
       controller.addAction(action, scriptIndex: _selectedScript);
@@ -293,6 +363,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       scriptIndex: _selectedScript,
     );
     if (context.mounted) _showAddedHint(context);
+    // Analyze loudness in the background; the UI updates when it lands.
+    unawaited(
+      controller.ensureLoudness(path).then((ok) {
+        if (context.mounted && ok) _showAnalyzedHint(context);
+      }),
+    );
   }
 
   Future<void> _edit(
@@ -304,6 +380,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context,
       initial: controller.scripts[_selectedScript][index],
       scriptCount: controller.scripts.length,
+      normalizeVolume: controller.normalizeVolume,
     );
     if (action != null) {
       controller.updateAction(_selectedScript, index, action);
@@ -317,6 +394,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SnackBar(
           duration: Duration(milliseconds: 900),
           content: Text('Шаг добавлен в конец скрипта'),
+        ),
+      );
+  }
+
+  void _showAnalyzedHint(BuildContext context) {
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        const SnackBar(
+          duration: Duration(milliseconds: 1200),
+          content: Text('Громкость трека измерена'),
         ),
       );
   }
@@ -449,16 +537,25 @@ class _ActionTile extends StatelessWidget {
     required this.action,
     required this.onEdit,
     required this.onDelete,
+    this.loudnessDb,
+    this.onRecalc,
   });
 
   final int index;
   final ScriptAction action;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final double? loudnessDb;
+  final VoidCallback? onRecalc;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final subtitle = action.type == ActionType.playMusic
+        ? (loudnessDb == null
+            ? 'Шаг ${index + 1} · громкость не замерена'
+            : 'Шаг ${index + 1} · ${loudnessDb!.toStringAsFixed(1)} дБ')
+        : 'Шаг ${index + 1}';
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ListTile(
@@ -468,10 +565,16 @@ class _ActionTile extends StatelessWidget {
           child: Icon(action.icon, size: 20),
         ),
         title: Text(action.title),
-        subtitle: Text('Шаг ${index + 1}'),
+        subtitle: Text(subtitle),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (action.type == ActionType.playMusic && onRecalc != null)
+              IconButton(
+                tooltip: 'Замерить громкость',
+                icon: const Icon(Icons.refresh, size: 20),
+                onPressed: onRecalc,
+              ),
             IconButton(
               tooltip: 'Удалить',
               icon: const Icon(Icons.delete_outline),
