@@ -152,6 +152,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _AddButton(
+                  icon: Icons.lock,
+                  label: 'Заблокировать',
+                  onPressed: () => _add(
+                    context,
+                    controller,
+                    const ScriptAction(type: ActionType.lockButton),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _AddButton(
+                  icon: Icons.lock_open,
+                  label: 'Разблокировать',
+                  onPressed: () => _add(
+                    context,
+                    controller,
+                    const ScriptAction(type: ActionType.unlockButton),
+                  ),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
           if (script.isEmpty)
             const Card(
@@ -551,45 +579,64 @@ class _ActionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final subtitle = action.type == ActionType.playMusic
-        ? (loudnessDb == null
-            ? 'Шаг ${index + 1} · громкость не замерена'
-            : 'Шаг ${index + 1} · ${loudnessDb!.toStringAsFixed(1)} дБ')
-        : 'Шаг ${index + 1}';
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      child: ListTile(
-        onTap: onEdit,
-        leading: CircleAvatar(
-          backgroundColor: scheme.surfaceContainerHighest,
-          child: Icon(action.icon, size: 20),
-        ),
-        title: Text(action.title),
-        subtitle: Text(subtitle),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (action.type == ActionType.playMusic && onRecalc != null)
-              IconButton(
-                tooltip: 'Замерить громкость',
-                icon: const Icon(Icons.refresh, size: 20),
-                onPressed: onRecalc,
-              ),
-            IconButton(
-              tooltip: 'Удалить',
-              icon: const Icon(Icons.delete_outline),
-              onPressed: onDelete,
+    // One line per step: title first, then only actionable status icons.
+    // A measured track is marked with a green check instead of a dB number.
+    final isMusic = action.type == ActionType.playMusic;
+    final measured = isMusic && loudnessDb != null;
+
+    return Column(
+      children: [
+        InkWell(
+          onTap: onEdit,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+            child: Row(
+              children: [
+                Icon(action.icon, size: 20, color: scheme.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    action.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+                if (measured)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4),
+                    child: Icon(
+                      Icons.check_circle,
+                      size: 20,
+                      color: Colors.green,
+                    ),
+                  )
+                else if (isMusic && onRecalc != null)
+                  IconButton(
+                    tooltip: 'Замерить громкость',
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.refresh, size: 20),
+                    onPressed: onRecalc,
+                  ),
+                IconButton(
+                  tooltip: 'Удалить',
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.delete_outline, size: 20),
+                  onPressed: onDelete,
+                ),
+                ReorderableDragStartListener(
+                  index: index,
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 8),
+                    child: Icon(Icons.drag_handle, size: 20),
+                  ),
+                ),
+              ],
             ),
-            ReorderableDragStartListener(
-              index: index,
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 8),
-                child: Icon(Icons.drag_handle),
-              ),
-            ),
-          ],
+          ),
         ),
-      ),
+        const Divider(height: 1),
+      ],
     );
   }
 }

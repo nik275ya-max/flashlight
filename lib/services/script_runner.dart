@@ -35,6 +35,10 @@ class ScriptRunner {
   /// Called once when an [ActionType.resetCounter] step executes.
   ValueChanged<int>? onCounterReset;
 
+  /// Called once when an [ActionType.lockButton] (true) or
+  /// [ActionType.unlockButton] (false) step executes.
+  ValueChanged<bool>? onButtonLocked;
+
   MusicService get music => _music;
 
   /// Resolves the effective playback volume for a [ActionType.playMusic] step.
@@ -91,6 +95,12 @@ class ScriptRunner {
           break;
         case ActionType.stopMusic:
           await _music.stop();
+          break;
+        case ActionType.lockButton:
+          onButtonLocked?.call(true);
+          break;
+        case ActionType.unlockButton:
+          onButtonLocked?.call(false);
           break;
         case ActionType.resetCounter:
           onCounterReset?.call(action.resetToScriptIndex);

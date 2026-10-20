@@ -14,6 +14,16 @@ class _FakeTorch extends TorchService {
   Future<bool> setOn(bool on) async => true;
 }
 
+class _RecordingTorch extends TorchService {
+  final List<bool> calls = <bool>[];
+
+  @override
+  Future<bool> setOn(bool on) async {
+    calls.add(on);
+    return true;
+  }
+}
+
 class _RecordingMusic extends MusicService {
   final List<double> volumes = <double>[];
   final List<String> plays = <String>[];
@@ -75,6 +85,17 @@ AppController _controllerWithLoudness(List<int> haptics, LoudnessService loud) {
     torchService: _FakeTorch(),
     magnetService: MagnetService(streamFactory: _sensorStream),
     loudnessService: loud,
+    hapticFeedback: () {
+      haptics.add(haptics.length + 1);
+      return Future<void>.value();
+    },
+  );
+}
+
+AppController _controllerWithTorch(TorchService torch, List<int> haptics) {
+  return AppController(
+    torchService: torch,
+    magnetService: MagnetService(streamFactory: _sensorStream),
     hapticFeedback: () {
       haptics.add(haptics.length + 1);
       return Future<void>.value();
@@ -452,6 +473,71 @@ void main() {
       controller.setKeepScreenOn(false);
       expect(controller.keepScreenOn, isFalse);
       controller.dispose();
+    });
+  });
+
+  group('manual button lock', () {
+    test('lockButton ignores taps until an unlockButton step runs', () async {
+      final torch = _RecordingTorch();
+      final controller = _controllerWithTorch(torch, <int>[]);
+      controller.setTurnOffAfterScript(false);
+      _replaceScript(
+        controller,
+        const ScriptAction(type: ActionType.lockButton),
+      );
+
+      await controller.runScript();
+      expect(controller.buttonLocked, isTrue);
+
+      // The tap is ignored while locked: the torch is never touched.
+      await controller.toggleTorch();
+      expect(torch.calls, isEmpty);
+
+      controller.resetStageCounter();
+      _replaceScript(
+        controller,
+        const ScriptAction(type: ActionType.unlockButton),
+      );
+      await controller.runScript();
+      expect(controller.buttonLocked, isFalse);
+
+      // Tapping works again once unlocked.
+      await controller.toggleTorch();
+      expect(torch.calls, [true]);
+      controller.dispose();
+    });
+
+    test('script steps still control the torch while the button is locked', () async {
+      final torch = _RecordingTorch();
+      final controller = _controllerWithTorch(torch, <int>[]);
+      controller.setTurnOffAfterScript(false);
+      _replaceScript(
+        controller,
+        const ScriptAction(
+          type: ActionType.lockButton,
+        ),
+      );
+      controller.addAction(const ScriptAction(type: ActionType.torchOn));
+
+      await controller.runScript();
+
+      // Only the scripted torchOn reaches the torch, not the button.
+      expect(torch.calls, [true]);
+      expect(controller.buttonLocked, isTrue);
+      controller.dispose();
+    });
+
+    test('the lock state survives a restart', () async {
+      final first = _controller(<int>[]);
+      await first.init();
+      first.setButtonLocked(true);
+
+      final second = _controller(<int>[]);
+      await second.init();
+      expect(second.buttonLocked, isTrue);
+
+      first.dispose();
+      second.dispose();
     });
   });
 }

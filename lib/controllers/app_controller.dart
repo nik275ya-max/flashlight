@@ -54,6 +54,7 @@ class AppController extends ChangeNotifier {
     _runner = ScriptRunner(_torch, music: _music);
     _runner.onUpdate = notifyListeners;
     _runner.onCounterReset = _onCounterReset;
+    _runner.onButtonLocked = _onButtonLockStep;
     _detector = MagnetDetector(threshold: _threshold);
   }
 
@@ -80,6 +81,7 @@ class AppController extends ChangeNotifier {
   static const _hapticKey = 'hapticOnScript';
   static const _normalizeVolumeKey = 'normalizeVolume';
   static const _keepScreenOnKey = 'keepScreenOn';
+  static const _buttonLockedKey = 'buttonLocked';
 
   // ---------------------------------------------------------------- settings
 
@@ -179,6 +181,12 @@ class AppController extends ChangeNotifier {
   /// keeps running and the UI stays responsive over long sessions.
   bool _keepScreenOn = true;
   bool get keepScreenOn => _keepScreenOn;
+
+  /// When true the manual power button on the home screen is locked: taps are
+  /// ignored without any visual change (the button still looks active).
+  /// Script steps and the magnet trigger are not affected.
+  bool _buttonLocked = false;
+  bool get buttonLocked => _buttonLocked;
 
   // ---------------------------------------------------------------- runtime
 
@@ -339,6 +347,11 @@ class AppController extends ChangeNotifier {
     _scriptResetTarget = target.clamp(0, _scripts.length - 1);
   }
 
+  void _onButtonLockStep(bool locked) {
+    _buttonLocked = locked;
+    _persist();
+  }
+
   void stopScript() => _runner.cancel();
 
   /// Manually rewinds the stage counter to the first script.
@@ -348,16 +361,20 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> toggleTorch() async {
+    // A locked button silently ignores taps; nothing changes visually.
+    if (_buttonLocked) return;
     await _torch.setOn(!_torch.isOn);
     notifyListeners();
   }
 
   // ------------------------------------------------------------- script edit
 
+  /// Appends a new stage. A brand new stage starts empty so the user builds
+  /// it step by step; [copyCurrent] explicitly duplicates the current one.
   void addScript({bool copyCurrent = false}) {
-    final source = (_scripts.isNotEmpty && copyCurrent)
+    final source = (copyCurrent && _scripts.isNotEmpty)
         ? _scripts[_stageIndex.clamp(0, _scripts.length - 1)]
-        : defaultScript();
+        : const <ScriptAction>[];
     _scripts = [..._scripts, List.of(source)];
     _persist();
   }
@@ -365,7 +382,8 @@ class AppController extends ChangeNotifier {
   void removeScript(int index) {
     if (index < 0 || index >= _scripts.length) return;
     final next = [..._scripts]..removeAt(index);
-    if (next.isEmpty) next.add(defaultScript());
+    // The list must keep at least one (possibly empty) stage.
+    if (next.isEmpty) next.add(const []);
     _scripts = _remapResetTargets(next, removedIndex: index);
     if (_stageIndex >= _scripts.length) _stageIndex = _scripts.length - 1;
     _persist();
@@ -496,6 +514,13 @@ class AppController extends ChangeNotifier {
     unawaited(_applyKeepScreenOn());
   }
 
+  /// Locks ([value] = true) or unlocks the manual power button.
+  void setButtonLocked(bool value) {
+    if (_buttonLocked == value) return;
+    _buttonLocked = value;
+    _persist();
+  }
+
   // ------------------------------------------------------------- persistence
 
   void _load() {
@@ -512,7 +537,8 @@ class AppController extends ChangeNotifier {
               .cast<Map<String, dynamic>>()
               .map(ScriptAction.fromJson)
               .toList();
-        }).where((s) => s.isNotEmpty).toList();
+        }).toList();
+        // Empty stages are valid (a freshly created one), so they are kept.
         if (parsed.isNotEmpty) _scripts = parsed;
       } catch (_) {
         // keep the default script on malformed data
@@ -548,6 +574,7 @@ class AppController extends ChangeNotifier {
     _hapticOnScript = prefs.getBool(_hapticKey) ?? true;
     _normalizeVolume = prefs.getBool(_normalizeVolumeKey) ?? false;
     _keepScreenOn = prefs.getBool(_keepScreenOnKey) ?? true;
+    _buttonLocked = prefs.getBool(_buttonLockedKey) ?? false;
   }
 
   void _persist() {
@@ -572,6 +599,7 @@ class AppController extends ChangeNotifier {
     prefs.setBool(_hapticKey, _hapticOnScript);
     prefs.setBool(_normalizeVolumeKey, _normalizeVolume);
     prefs.setBool(_keepScreenOnKey, _keepScreenOn);
+    prefs.setBool(_buttonLockedKey, _buttonLocked);
     notifyListeners();
   }
 

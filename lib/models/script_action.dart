@@ -1,7 +1,16 @@
 import 'package:flutter/material.dart';
 
 /// The kind of step a script can perform.
-enum ActionType { torchOn, torchOff, delay, playMusic, stopMusic, resetCounter }
+enum ActionType {
+  torchOn,
+  torchOff,
+  delay,
+  playMusic,
+  stopMusic,
+  lockButton,
+  unlockButton,
+  resetCounter,
+}
 
 /// A single step in the flash script.
 ///
@@ -50,6 +59,10 @@ class ScriptAction {
         return 'Включить музыку: $name';
       case ActionType.stopMusic:
         return 'Выключить музыку';
+      case ActionType.lockButton:
+        return 'Заблокировать кнопку';
+      case ActionType.unlockButton:
+        return 'Разблокировать кнопку';
       case ActionType.resetCounter:
         return 'Сброс счётчика';
     }
@@ -72,6 +85,10 @@ class ScriptAction {
         return 'Проиграть выбранный аудиофайл (громкость $volumeLabel)';
       case ActionType.stopMusic:
         return 'Остановить воспроизведение';
+      case ActionType.lockButton:
+        return 'Нажатия кнопки фонарика игнорируются';
+      case ActionType.unlockButton:
+        return 'Нажатия кнопки снова включают фонарик';
       case ActionType.resetCounter:
         return 'Вернуть счётчик на первый скрипт';
     }
@@ -89,6 +106,10 @@ class ScriptAction {
         return Icons.music_note;
       case ActionType.stopMusic:
         return Icons.music_off;
+      case ActionType.lockButton:
+        return Icons.lock;
+      case ActionType.unlockButton:
+        return Icons.lock_open;
       case ActionType.resetCounter:
         return Icons.restart_alt;
     }

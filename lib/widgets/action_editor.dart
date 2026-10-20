@@ -225,6 +225,10 @@ class _ActionEditorState extends State<_ActionEditor> {
         return 'Включить музыку';
       case ActionType.stopMusic:
         return 'Выключить музыку';
+      case ActionType.lockButton:
+        return 'Заблокировать кнопку';
+      case ActionType.unlockButton:
+        return 'Разблокировать кнопку';
       case ActionType.resetCounter:
         return 'Сброс счётчика';
     }
@@ -242,6 +246,10 @@ class _ActionEditorState extends State<_ActionEditor> {
         return Icons.music_note;
       case ActionType.stopMusic:
         return Icons.music_off;
+      case ActionType.lockButton:
+        return Icons.lock;
+      case ActionType.unlockButton:
+        return Icons.lock_open;
       case ActionType.resetCounter:
         return Icons.restart_alt;
     }
