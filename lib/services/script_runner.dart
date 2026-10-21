@@ -8,7 +8,9 @@ import 'torch_service.dart';
 ///
 /// Only one run can happen at a time. A run can be cancelled between steps,
 /// and long delays are split into small ticks so cancellation stays
-/// responsive. [cancel] also stops any music that is still playing.
+/// responsive. Music is left alone: a cancelled or finished run keeps the
+/// tracks playing (and mixing), so only an explicit [ActionType.stopMusic]
+/// step ever ends playback.
 class ScriptRunner {
   ScriptRunner(this._torch, {MusicService? music})
     : _music = music ?? MusicService();
@@ -108,9 +110,9 @@ class ScriptRunner {
       }
     }
 
-    if (_cancelRequested) {
-      await _music.stop();
-    } else if (turnOffAtEnd) {
+    // Music is never stopped implicitly: an interrupted run hands the mix over
+    // to the next script, and only an explicit stopMusic step ends it.
+    if (!_cancelRequested && turnOffAtEnd) {
       await _torch.setOn(false);
     }
 

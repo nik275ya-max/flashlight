@@ -71,7 +71,7 @@ void main() {
     expect(resets, [2]);
   });
 
-  test('cancel stops music and exposes activeRun', () async {
+  test('cancel keeps the music playing and exposes activeRun', () async {
     final music = _FakeMusic();
     final runner = ScriptRunner(_FakeTorch(), music: music);
 
@@ -86,7 +86,21 @@ void main() {
     await run;
 
     expect(runner.isRunning, isFalse);
-    expect(music.stops, greaterThanOrEqualTo(1));
+    // Nothing stops the mix implicitly: only a stopMusic step does.
+    expect(music.stops, 0);
+  });
+
+  test('a finished run does not stop the music either', () async {
+    final music = _FakeMusic();
+    final runner = ScriptRunner(_FakeTorch(), music: music);
+
+    await runner.run(const [
+      ScriptAction(type: ActionType.playMusic, filePath: '/tmp/a.mp3'),
+      ScriptAction(type: ActionType.torchOn),
+    ]);
+
+    expect(music.plays, ['/tmp/a.mp3']);
+    expect(music.stops, 0);
   });
 
   test('turnOffAtEnd turns the torch off', () async {
