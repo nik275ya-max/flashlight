@@ -137,6 +137,17 @@ class _StatusText extends StatelessWidget {
             color: lit ? _litForeground.withValues(alpha: 0.75) : Colors.white54,
           ),
         ),
+        if (controller.lastLaunchError != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            controller.lastLaunchError!,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              color: lit ? const Color(0xFFB3261E) : Colors.redAccent,
+            ),
+          ),
+        ],
       ],
     );
   }

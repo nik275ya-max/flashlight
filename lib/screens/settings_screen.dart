@@ -15,8 +15,40 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen>
+    with WidgetsBindingObserver {
   int _selectedScript = 0;
+
+  /// True when the system lets the app start activities in the background.
+  bool _backgroundLaunchAllowed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_refreshBackgroundLaunch());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // The permission is granted in the system settings, so the state has to
+    // be read again when the user comes back.
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshBackgroundLaunch());
+    }
+  }
+
+  Future<void> _refreshBackgroundLaunch() async {
+    final allowed = await context.read<AppController>().canLaunchInBackground();
+    if (!mounted) return;
+    setState(() => _backgroundLaunchAllowed = allowed);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -179,6 +211,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 8),
+          _AddButton(
+            icon: Icons.apps,
+            label: 'Запустить приложение',
+            onPressed: () => _addApp(context, controller),
           ),
           const SizedBox(height: 12),
           if (script.isEmpty)
@@ -356,6 +394,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onChanged: controller.setKeepScreenOn,
             ),
           ),
+          const SizedBox(height: 24),
+          const Divider(),
+          _SectionTitle(
+            title: 'Запуск приложений',
+            subtitle:
+                'Шаг «Запустить приложение» открывает выбранное приложение '
+                'на телефоне.',
+          ),
+          Card(
+            child: ListTile(
+              leading: Icon(
+                Icons.open_in_new,
+                color: _backgroundLaunchAllowed
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              title: const Text('Запуск при заблокированном экране'),
+              subtitle: Text(
+                _backgroundLaunchAllowed
+                    ? 'Разрешён — приложения открываются даже с выключенным '
+                          'экраном'
+                    : 'Android не даёт открыть приложение из фона. Разрешите '
+                          '«Отображение поверх других приложений».',
+              ),
+              trailing: TextButton(
+                onPressed: () => controller.openOverlaySettings(),
+                child: const Text('Настроить'),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -399,6 +467,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// Adds a step that starts another app. The app is picked in the editor,
+  /// because the list of installed apps has to be loaded from the device.
+  Future<void> _addApp(BuildContext context, AppController controller) async {
+    final action = await showActionEditor(
+      context,
+      initial: const ScriptAction(type: ActionType.launchApp),
+      scriptCount: controller.scripts.length,
+      normalizeVolume: controller.normalizeVolume,
+      appService: controller.appLaunchService,
+    );
+    if (action != null) {
+      controller.addAction(action, scriptIndex: _selectedScript);
+      if (context.mounted) _showAddedHint(context);
+    }
+  }
+
   Future<void> _edit(
     BuildContext context,
     AppController controller,
@@ -409,6 +493,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       initial: controller.scripts[_selectedScript][index],
       scriptCount: controller.scripts.length,
       normalizeVolume: controller.normalizeVolume,
+      appService: controller.appLaunchService,
     );
     if (action != null) {
       controller.updateAction(_selectedScript, index, action);

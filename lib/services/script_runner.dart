@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/script_action.dart';
+import 'app_launch_service.dart';
 import 'music_service.dart';
 import 'torch_service.dart';
 
@@ -12,11 +13,13 @@ import 'torch_service.dart';
 /// tracks playing (and mixing), so only an explicit [ActionType.stopMusic]
 /// step ever ends playback.
 class ScriptRunner {
-  ScriptRunner(this._torch, {MusicService? music})
-    : _music = music ?? MusicService();
+  ScriptRunner(this._torch, {MusicService? music, AppLaunchService? apps})
+    : _music = music ?? MusicService(),
+      _apps = apps ?? AppLaunchService();
 
   final TorchService _torch;
   final MusicService _music;
+  final AppLaunchService _apps;
 
   bool _running = false;
   bool get isRunning => _running;
@@ -97,6 +100,12 @@ class ScriptRunner {
           break;
         case ActionType.stopMusic:
           await _music.stop();
+          break;
+        case ActionType.launchApp:
+          final packageName = action.packageName;
+          if (packageName != null && packageName.isNotEmpty) {
+            await _apps.launch(packageName);
+          }
           break;
         case ActionType.lockButton:
           onButtonLocked?.call(true);

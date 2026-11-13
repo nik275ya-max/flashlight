@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/script_action.dart';
+import '../services/app_launch_service.dart';
+import 'app_picker.dart';
 
 /// Shows a bottom sheet to create or edit a single [ScriptAction].
 ///
@@ -12,6 +14,7 @@ Future<ScriptAction?> showActionEditor(
   ScriptAction? initial,
   int scriptCount = 1,
   bool normalizeVolume = false,
+  AppLaunchService? appService,
 }) {
   return showModalBottomSheet<ScriptAction>(
     context: context,
@@ -21,6 +24,7 @@ Future<ScriptAction?> showActionEditor(
       initial: initial,
       scriptCount: scriptCount,
       normalizeVolume: normalizeVolume,
+      appService: appService,
     ),
   );
 }
@@ -30,11 +34,15 @@ class _ActionEditor extends StatefulWidget {
     this.initial,
     required this.scriptCount,
     this.normalizeVolume = false,
+    this.appService,
   });
 
   final ScriptAction? initial;
   final int scriptCount;
   final bool normalizeVolume;
+
+  /// Used to list the installed apps for an [ActionType.launchApp] step.
+  final AppLaunchService? appService;
 
   @override
   State<_ActionEditor> createState() => _ActionEditorState();
@@ -46,6 +54,8 @@ class _ActionEditorState extends State<_ActionEditor> {
   late String? _filePath;
   late double _volume;
   late int _resetTarget;
+  late String? _packageName;
+  late String? _appLabel;
   late final TextEditingController _msController;
 
   @override
@@ -58,6 +68,8 @@ class _ActionEditorState extends State<_ActionEditor> {
     _filePath = initial.filePath;
     _volume = initial.effectiveVolume;
     _resetTarget = initial.resetToScriptIndex.clamp(0, widget.scriptCount - 1);
+    _packageName = initial.packageName;
+    _appLabel = initial.appLabel;
     _msController = TextEditingController(text: '${initial.delayMs}');
   }
 
@@ -175,6 +187,36 @@ class _ActionEditorState extends State<_ActionEditor> {
                   ),
                 ),
             ],
+            if (_type == ActionType.launchApp) ...[
+              const SizedBox(height: 24),
+              OutlinedButton.icon(
+                onPressed: widget.appService == null ? null : _pickApp,
+                icon: const Icon(Icons.apps),
+                label: Text(
+                  _appLabel == null ? 'Выбрать приложение' : _appLabel!,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (_packageName != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _packageName!,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+              const SizedBox(height: 8),
+              Text(
+                'Приложение откроется на телефоне. Если экран заблокирован, '
+                'разрешите запуск из фона в настройках приложения.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
             if (_type == ActionType.resetCounter) ...[
               const SizedBox(height: 24),
               DropdownButtonFormField<int>(
@@ -225,6 +267,8 @@ class _ActionEditorState extends State<_ActionEditor> {
         return 'Включить музыку';
       case ActionType.stopMusic:
         return 'Выключить музыку';
+      case ActionType.launchApp:
+        return 'Запустить приложение';
       case ActionType.lockButton:
         return 'Заблокировать кнопку';
       case ActionType.unlockButton:
@@ -246,6 +290,8 @@ class _ActionEditorState extends State<_ActionEditor> {
         return Icons.music_note;
       case ActionType.stopMusic:
         return Icons.music_off;
+      case ActionType.launchApp:
+        return Icons.apps;
       case ActionType.lockButton:
         return Icons.lock;
       case ActionType.unlockButton:
@@ -265,6 +311,22 @@ class _ActionEditorState extends State<_ActionEditor> {
     }
   }
 
+  Future<void> _pickApp() async {
+    final service = widget.appService;
+    if (service == null) return;
+    final app = await showAppPicker(
+      context,
+      service: service,
+      selectedPackage: _packageName,
+    );
+    if (app != null) {
+      setState(() {
+        _packageName = app.packageName;
+        _appLabel = app.label;
+      });
+    }
+  }
+
   void _save() {
     var delayMs = int.tryParse(_msController.text) ?? 0;
     if (delayMs < 1) delayMs = 1;
@@ -279,6 +341,8 @@ class _ActionEditorState extends State<_ActionEditor> {
       filePath: _type == ActionType.playMusic ? _filePath : null,
       volume: _type == ActionType.playMusic ? _volume : 1.0,
       resetToScriptIndex: _type == ActionType.resetCounter ? _resetTarget : 0,
+      packageName: _type == ActionType.launchApp ? _packageName : null,
+      appLabel: _type == ActionType.launchApp ? _appLabel : null,
     );
     Navigator.of(context).pop(action);
   }

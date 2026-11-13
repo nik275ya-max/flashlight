@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'platform_channel.dart';
+
 /// Measures the RMS loudness of a local audio file and caches the result.
 ///
 /// On Android the analysis runs in a native background thread through the
@@ -13,11 +15,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// to full volume in that case.
 class LoudnessService {
   // ignore: prefer_initializing_formals
-  LoudnessService({MethodChannel? channel}) : _channel = channel;
+  LoudnessService({MethodChannel? channel})
+      : _channel = channel ?? const MethodChannel(backgroundChannelName);
 
   static const _cacheKey = 'loudnessCache';
 
-  final MethodChannel? _channel;
+  final MethodChannel _channel;
   Map<String, double> _cache = const {};
 
   /// All loudness values currently cached, keyed by file path (dBFS).
@@ -47,14 +50,11 @@ class LoudnessService {
   /// missing). A previously cached value is reused unless [force] is true.
   Future<double?> analyze(String path, {bool force = false}) async {
     if (!force && _cache.containsKey(path)) return _cache[path];
-    final channel = _channel;
-    if (channel == null ||
-        kIsWeb ||
-        defaultTargetPlatform != TargetPlatform.android) {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
       return null;
     }
     try {
-      final result = await channel
+      final result = await _channel
           .invokeMethod<Map>('analyzeLoudness', {'path': path})
           .timeout(const Duration(seconds: 30));
       final rmsDb = (result?['rmsDb'] as num?)?.toDouble();

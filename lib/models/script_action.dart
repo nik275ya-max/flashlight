@@ -7,6 +7,7 @@ enum ActionType {
   delay,
   playMusic,
   stopMusic,
+  launchApp,
   lockButton,
   unlockButton,
   resetCounter,
@@ -16,7 +17,8 @@ enum ActionType {
 ///
 /// A step is either turning the torch on, turning it off, waiting for
 /// [delayMs] milliseconds, playing a local audio file ([filePath], only for
-/// [ActionType.playMusic]) at [volume] (0.0–1.0), stopping audio, or resetting
+/// [ActionType.playMusic]) at [volume] (0.0–1.0), stopping audio, starting
+/// another app ([packageName], only for [ActionType.launchApp]) or resetting
 /// the stage counter back to a selected script.
 @immutable
 class ScriptAction {
@@ -27,6 +29,8 @@ class ScriptAction {
     this.filePath,
     this.volume = 1.0,
     this.resetToScriptIndex = 0,
+    this.packageName,
+    this.appLabel,
   });
 
   final ActionType type;
@@ -37,6 +41,12 @@ class ScriptAction {
   /// Playback volume for [ActionType.playMusic], clamped to 0.0–1.0.
   final double volume;
   final int resetToScriptIndex;
+
+  /// The Android package id of the app to start ([ActionType.launchApp]).
+  final String? packageName;
+
+  /// The user visible name of that app, shown in the script list.
+  final String? appLabel;
 
   bool get isDelay => type == ActionType.delay;
 
@@ -59,6 +69,11 @@ class ScriptAction {
         return 'Включить музыку: $name';
       case ActionType.stopMusic:
         return 'Выключить музыку';
+      case ActionType.launchApp:
+        final name = appLabel?.trim();
+        return name == null || name.isEmpty
+            ? 'Запустить приложение'
+            : 'Запустить приложение: $name';
       case ActionType.lockButton:
         return 'Заблокировать кнопку';
       case ActionType.unlockButton:
@@ -85,6 +100,11 @@ class ScriptAction {
         return 'Проиграть выбранный аудиофайл (громкость $volumeLabel)';
       case ActionType.stopMusic:
         return 'Остановить воспроизведение';
+      case ActionType.launchApp:
+        final name = appLabel?.trim();
+        return name == null || name.isEmpty
+            ? 'Приложение не выбрано'
+            : 'Открыть $name';
       case ActionType.lockButton:
         return 'Нажатия кнопки фонарика игнорируются';
       case ActionType.unlockButton:
@@ -106,6 +126,8 @@ class ScriptAction {
         return Icons.music_note;
       case ActionType.stopMusic:
         return Icons.music_off;
+      case ActionType.launchApp:
+        return Icons.apps;
       case ActionType.lockButton:
         return Icons.lock;
       case ActionType.unlockButton:
@@ -123,6 +145,8 @@ class ScriptAction {
       'resetToScriptIndex': resetToScriptIndex,
     if (type == ActionType.playMusic) 'volume': effectiveVolume,
     if (filePath != null) 'filePath': filePath,
+    if (packageName != null) 'packageName': packageName,
+    if (appLabel != null) 'appLabel': appLabel,
   };
 
   factory ScriptAction.fromJson(Map<String, dynamic> json) {
@@ -137,6 +161,8 @@ class ScriptAction {
       filePath: json['filePath'] as String?,
       volume: (json['volume'] as num?)?.toDouble() ?? 1.0,
       resetToScriptIndex: (json['resetToScriptIndex'] as num?)?.toInt() ?? 0,
+      packageName: json['packageName'] as String?,
+      appLabel: json['appLabel'] as String?,
     );
   }
 
@@ -147,6 +173,8 @@ class ScriptAction {
     String? filePath,
     double? volume,
     int? resetToScriptIndex,
+    String? packageName,
+    String? appLabel,
   }) {
     return ScriptAction(
       type: type ?? this.type,
@@ -155,6 +183,8 @@ class ScriptAction {
       filePath: filePath ?? this.filePath,
       volume: volume ?? this.volume,
       resetToScriptIndex: resetToScriptIndex ?? this.resetToScriptIndex,
+      packageName: packageName ?? this.packageName,
+      appLabel: appLabel ?? this.appLabel,
     );
   }
 }

@@ -8,6 +8,7 @@ import 'app.dart';
 import 'controllers/app_controller.dart';
 import 'services/loudness_service.dart';
 import 'services/magnet_service.dart';
+import 'services/platform_channel.dart';
 import 'services/torch_service.dart';
 
 Future<void> main() async {
@@ -20,7 +21,7 @@ Future<void> main() async {
     await Permission.notification.request();
   }
 
-  const channel = MethodChannel('com.magictech.flashlight/background');
+  const channel = MethodChannel(backgroundChannelName);
 
   Future<void> setKeepScreenOnPlatform(bool keepOn) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;

@@ -78,6 +78,27 @@ void main() {
         contains('свет вкл'),
       );
     });
+
+    test('serialises and restores the app of a launch step', () {
+      const action = ScriptAction(
+        type: ActionType.launchApp,
+        packageName: 'com.example.one',
+        appLabel: 'Первое',
+      );
+
+      final restored = ScriptAction.fromJson(action.toJson());
+
+      expect(restored.type, ActionType.launchApp);
+      expect(restored.packageName, 'com.example.one');
+      expect(restored.appLabel, 'Первое');
+      expect(restored.title, contains('Первое'));
+    });
+
+    test('describes a launch step without an app', () {
+      const action = ScriptAction(type: ActionType.launchApp);
+      expect(action.title, 'Запустить приложение');
+      expect(action.subtitle, 'Приложение не выбрано');
+    });
   });
 
   group('ScriptRunner', () {

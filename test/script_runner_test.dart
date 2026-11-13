@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:flashlight/models/script_action.dart';
+import 'package:flashlight/services/app_launch_service.dart';
 import 'package:flashlight/services/music_service.dart';
 import 'package:flashlight/services/script_runner.dart';
 import 'package:flashlight/services/torch_service.dart';
@@ -33,6 +34,16 @@ class _FakeMusic extends MusicService {
   @override
   Future<void> stop() async {
     stops++;
+  }
+}
+
+class _FakeApps extends AppLaunchService {
+  final List<String> launched = [];
+
+  @override
+  Future<bool> launch(String packageName) async {
+    launched.add(packageName);
+    return true;
   }
 }
 
@@ -166,5 +177,29 @@ void main() {
     ]);
 
     expect(music.volumes, [1.0]);
+  });
+
+  test('launchApp starts the app of the step', () async {
+    final apps = _FakeApps();
+    final runner = ScriptRunner(_FakeTorch(), music: _FakeMusic(), apps: apps);
+
+    await runner.run(const [
+      ScriptAction(
+        type: ActionType.launchApp,
+        packageName: 'com.example.one',
+        appLabel: 'Первое',
+      ),
+    ]);
+
+    expect(apps.launched, ['com.example.one']);
+  });
+
+  test('launchApp without a package name does nothing', () async {
+    final apps = _FakeApps();
+    final runner = ScriptRunner(_FakeTorch(), music: _FakeMusic(), apps: apps);
+
+    await runner.run(const [ScriptAction(type: ActionType.launchApp)]);
+
+    expect(apps.launched, isEmpty);
   });
 }

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/script_action.dart';
+import '../services/app_launch_service.dart';
 import '../services/haptic_service.dart';
 import '../services/loudness_service.dart';
 import '../services/magnet_detector.dart';
@@ -43,15 +44,17 @@ class AppController extends ChangeNotifier {
     Future<void> Function()? hapticFeedback,
     MusicService? musicService,
     LoudnessService? loudnessService,
+    AppLaunchService? appLaunchService,
     Future<void> Function(bool keepOn)? setKeepScreenOnPlatform,
   }) : _torch = torchService,
        _magnet = magnetService,
        _music = musicService ?? MusicService(),
        _loudness = loudnessService,
+       _apps = appLaunchService ?? AppLaunchService(),
        _hapticFeedback = hapticFeedback ?? HapticService().buzz,
        // ignore: prefer_initializing_formals - keep the public param name
        _setKeepScreenOnPlatform = setKeepScreenOnPlatform {
-    _runner = ScriptRunner(_torch, music: _music);
+    _runner = ScriptRunner(_torch, music: _music, apps: _apps);
     _runner.onUpdate = notifyListeners;
     _runner.onCounterReset = _onCounterReset;
     _runner.onButtonLocked = _onButtonLockStep;
@@ -62,6 +65,7 @@ class AppController extends ChangeNotifier {
   final MagnetService _magnet;
   final MusicService _music;
   final LoudnessService? _loudness;
+  final AppLaunchService _apps;
   final Future<void> Function() _hapticFeedback;
   final Future<void> Function(bool)? _setKeepScreenOnPlatform;
   late final ScriptRunner _runner;
@@ -176,6 +180,28 @@ class AppController extends ChangeNotifier {
 
   /// The cached RMS (dBFS) for a given file path, or null when unknown.
   double? loudnessOf(String path) => _loudness?.loudnessOf(path);
+
+  // ------------------------------------------------------------ app launching
+
+  /// The service that lists and starts the installed apps.
+  AppLaunchService get appLaunchService => _apps;
+
+  /// Every installed app that can be started by a script step.
+  Future<List<AppInfo>> listApps({bool force = false}) =>
+      _apps.listApps(force: force);
+
+  /// Opens the system page that grants the "display over other apps"
+  /// permission. Android blocks app launches from the background without it.
+  Future<bool> openOverlaySettings() => _apps.openOverlaySettings();
+
+  /// True when the app may start activities while it is in the background.
+  Future<bool> canLaunchInBackground() => _apps.canLaunchInBackground();
+
+  String? _lastLaunchError;
+
+  /// The message of the last failed app launch, or null when the last launch
+  /// worked (or no app was launched yet).
+  String? get lastLaunchError => _lastLaunchError;
 
   /// When true the device screen stays on (no auto-lock) so the magnet loop
   /// keeps running and the UI stays responsive over long sessions.
@@ -331,7 +357,21 @@ class AppController extends ChangeNotifier {
 
     _scriptResetTarget = null;
     _applyVolumeResolver();
-    await _runner.run(_scripts[stage], turnOffAtEnd: _turnOffAfterScript);
+    _apps.clearError();
+    _lastLaunchError = null;
+    final script = _scripts[stage];
+    await _runner.run(script, turnOffAtEnd: _turnOffAfterScript);
+
+    // A failed launch is worth showing: the script kept running, but the app
+    // the user asked for never opened. Only a script that really starts an
+    // app can report one - a stale error from the app list is ignored.
+    final launchesApp =
+        script.any((action) => action.type == ActionType.launchApp);
+    final launchError = launchesApp ? _apps.lastError : null;
+    if (launchError != null) {
+      _lastLaunchError = launchError;
+      notifyListeners();
+    }
 
     // A cancelled run never applies the reset (the flag was cleared above
     // and only set again when the resetCounter step actually executes).
